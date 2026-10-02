@@ -1,0 +1,11 @@
+services:
+  ruanzhu:
+    build: .
+    container_name: ruanzhu-platform
+    ports:
+      - "8310:8310"
+    volumes:
+      - ./data:/app/data          # SQLite 数据库持久化
+      - ./exports:/app/exports    # 导出的 docx / zip 材料
+      - ./.env:/app/.env:ro       # LLM 配置（不存在时可先 cp .env.example .env）
+    restart: unless-stopped

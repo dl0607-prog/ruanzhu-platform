@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 安装依赖
+        run: pip install -r backend/requirements.txt pytest
+
+      - name: 单元测试（引擎 / 审查 / 知识库规则）
+        run: cd backend && python -m pytest tests/ -q
+
+      - name: 启动冒烟（健康检查 + 首页）
+        run: |
+          cd backend
+          nohup python -m uvicorn app.main:app --port 8310 &
+          for i in $(seq 1 15); do
+            curl -sf http://127.0.0.1:8310/api/health > /dev/null && break
+            sleep 1
+          done
+          curl -sf http://127.0.0.1:8310/api/health | grep -o '"ok"[[:space:]]*:[[:space:]]*true'
+          curl -sf http://127.0.0.1:8310/ | grep -o '软著工场'

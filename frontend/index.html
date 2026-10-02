@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>软著工场 · 软著申请辅助平台</title>
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='2' y='2' width='28' height='28' rx='7' fill='%233b66f5'/%3E%3Cpath d='M10 20.5V11a1.5 1.5 0 0 1 1.5-1.5H17l5 4.5v6.5a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 10 20.5z' fill='none' stroke='white' stroke-width='2' stroke-linejoin='round'/%3E%3Cpath d='M13.5 16h5M13.5 19h3.5' stroke='white' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/static/style.css">
+<script>document.documentElement.dataset.theme = localStorage.getItem("rz-theme") || "light";</script>
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <div class="logo">
+      <svg class="logo-mark" viewBox="0 0 32 32" aria-hidden="true">
+        <rect x="2" y="2" width="28" height="28" rx="7" fill="url(#lg)"/>
+        <defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#4d7cff"/><stop offset="1" stop-color="#2c50d4"/>
+        </linearGradient></defs>
+        <path d="M10 20.5V11a1.5 1.5 0 0 1 1.5-1.5H17l5 4.5v6.5a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 10 20.5z" fill="none" stroke="#fff" stroke-width="2" stroke-linejoin="round"/>
+        <path d="M13.5 16h5M13.5 19h3.5" stroke="#fff" stroke-width="2" stroke-linecap="round"/>
+      </svg>
+      <div class="logo-text">
+        <div class="name">软著工场</div>
+        <div class="sub">AI 生成 · 合规预检 · 驳回回流</div>
+      </div>
+    </div>
+    <nav class="nav">
+      <div class="nav-item" id="btn-home"><span class="ico" data-icon="home"></span>项目总览</div>
+      <div class="nav-section">申请项目</div>
+      <div class="proj-list" id="proj-list"></div>
+      <button class="nav-add" id="btn-new-side"><span class="ico" data-icon="plus"></span>新建申请</button>
+    </nav>
+    <div class="sidebar-foot">
+      <div class="foot-pill"><span class="dot"></span>审查口径：2026-03-15 新版申请表</div>
+      <div class="foot-links">
+        <a href="https://www.ccopyright.com.cn" target="_blank" rel="noopener">中国版权保护中心 ↗</a>
+      </div>
+    </div>
+  </aside>
+  <div class="main-wrap">
+    <header class="topbar">
+      <div class="topbar-title">
+        <h1 id="page-title">项目总览</h1>
+        <div class="crumb" id="page-crumb">一站式生成能通过审查的软著申请材料</div>
+      </div>
+      <div class="topbar-actions">
+        <span id="llm-badge"></span>
+        <button class="icon-btn" id="btn-theme" title="切换亮 / 暗主题" aria-label="切换主题"></button>
+        <button class="btn btn-primary" id="btn-new-top"><span class="ico" data-icon="plus"></span>新建申请</button>
+      </div>
+    </header>
+    <main class="content" id="main-area">
+      <div class="empty" style="padding-top:140px;">加载中…</div>
+    </main>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+<script src="/static/app.js"></script>
+</body>
+</html>
