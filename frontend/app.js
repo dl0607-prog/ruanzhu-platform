@@ -512,7 +512,7 @@ function projectViewHTML(p) {
     </select>
   </div>
   <div class="card row spread"><div><b>下一步：${next[1]}</b><div class="muted">信息、代码、材料和检查都保存在当前项目。</div></div><button class="btn btn-primary" data-next-tab="${next[0]}">${next[2]}</button></div>
-  <div class="tabs">${TABS.map(([k, n, ic]) => `<div class="tab ${state.tab === k ? "active" : ""}" data-tab="${k}">${icon(ic, 14.5)}${n}</div>`).join("")}</div>
+  <div class="tabs">${TABS.map(([k, n, ic]) => `<button type="button" class="tab ${state.tab === k ? "active" : ""}" data-tab="${k}">${icon(ic, 14.5)}${n}</button>`).join("")}</div>
   <div id="tab-body"></div>
   <input type="file" id="hidden-file" multiple style="display:none;" accept=".py,.js,.ts,.vue,.java,.go,.rs,.c,.cpp,.h,.cs,.php,.rb,.kt,.swift,.sql,.sh,.html,.css,.json,.yaml,.yml,.xml,.zip">`;
 }
