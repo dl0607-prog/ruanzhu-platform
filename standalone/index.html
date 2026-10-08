@@ -438,11 +438,12 @@ html[data-theme="dark"] .pbar { background: var(--card-2); }
 
 /* ---------------- 页签 ---------------- */
 .tabs {
-  display: flex; gap: 4px; background: var(--card);
+  display: flex; flex-wrap: wrap; gap: 4px; background: var(--card);
   border: 1px solid var(--line); border-radius: 12px; padding: 5px;
-  box-shadow: var(--shadow); margin-bottom: 18px; overflow-x: auto;
+  box-shadow: var(--shadow); margin-bottom: 18px;
 }
 .tab {
+  border: 0; background: transparent; font-family: inherit;
   padding: 8px 17px; border-radius: 9px; cursor: pointer;
   font-size: 13.5px; font-weight: 500; color: var(--text-2); white-space: nowrap;
   display: flex; align-items: center; gap: 7px; transition: all .15s;
@@ -939,16 +940,21 @@ function openProject(id) {
   state.tab = "info";
   setNav(null);
   renderSidebar();
-  location.hash = "#/project/" + id;
-  loadProjectView();
+  const route = "#/project/" + id;
+  if (location.hash !== route) location.hash = route;
+  else loadProjectView();
 }
 
+let projectViewRequest = 0;
 async function loadProjectView() {
+  const request = ++projectViewRequest;
+  const projectId = state.currentId;
   if (!state.currentId) return showDashboard();
   let p;
   try { p = await api("/api/projects/" + state.currentId); }
-  catch (e) { state.currentId = null; return showDashboard(); }
-  setPage(`${p.full_name} ${p.version}`, "项目工作台 · 生成 → 审查 → 导出");
+  catch (e) { if (request !== projectViewRequest || projectId !== state.currentId) return; state.currentId = null; return showDashboard(); }
+  if (request !== projectViewRequest || projectId !== state.currentId) return;
+  setPage(`${p.full_name} ${p.version}`, "填写信息 → 上传代码 → 准备材料 → 检查 → 下载");
   $("#main-area").innerHTML = projectViewHTML(p);
   hydrateIcons($("#main-area"));
   bindProjectEvents(p);
@@ -989,7 +995,7 @@ async function showDashboard() {
   location.hash = "#/";
   state.currentId = null;
   setNav("btn-home");
-  setPage("项目总览", "一站式生成能通过审查的软著申请材料");
+  setPage("项目总览", "整理真实软件材料，检查问题并下载");
   renderSidebar();
   let rules = [];
   try { rules = (await api("/api/kb/rules")).rules; } catch (e) {}
@@ -1017,7 +1023,7 @@ async function showDashboard() {
       <div class="step-card"><div class="s-head"><span class="s-no">2</span><span class="s-title">${icon("sparkles", 15)} AI 生成全套</span></div>
         <div class="s-desc">分析代码模块，逐章节生成说明书、申请表参考字段、AI 声明、开发过程记录。</div></div>
       <div class="step-card"><div class="s-head"><span class="s-no">3</span><span class="s-title">${icon("shield", 15)} 提交前预检</span></div>
-        <div class="s-desc">三重一致性、名称版本格式、AI 痕迹词、材料齐备等硬校验，blocker 清零再提交。</div></div>
+        <div class="s-desc">三重一致性、名称版本格式、待核实内容、材料齐备和真实来源，待处理项解决后再提交。</div></div>
       <div class="step-card"><div class="s-head"><span class="s-no">4</span><span class="s-title">${icon("refresh", 15)} 驳回回流</span></div>
         <div class="s-desc">把补正/驳回通知贴进来，AI 归因沉淀为规避规则，之后生成与审查自动生效。</div></div>
     </div>
@@ -1033,7 +1039,7 @@ async function showDashboard() {
           <td class="muted">${esc((p.created_at || "").slice(0, 10))}</td>
           <td><button class="btn btn-danger-ghost btn-sm" data-del="${p.id}">${icon("trash", 13)} 删除</button></td>
         </tr>`; }).join("")}</tbody></table></div>`
-      : `<div class="empty"><div class="big">${icon("folderopen", 46)}</div>还没有申请项目。<br>点击「新建申请」，填写软件信息、导入 AI 生成的源代码，<br>平台将一站式生成软著申请全套材料并预检合规。</div>`}
+      : `<div class="empty"><div class="big">${icon("folderopen", 46)}</div>还没有申请项目。<br>点击「新建申请」，填写软件信息、导入实际源代码，<br>平台将一站式生成软著申请全套材料并预检合规。</div>`}
     </div>`;
   hydrateIcons($("#main-area"));
   const newBtns = [["#btn-hero-new"], ["#btn-new"]];
@@ -1215,6 +1221,11 @@ function openProjectModal(p) {
 
 /* ---------------- 项目工作台 ---------------- */
 function projectViewHTML(p) {
+  const kinds = (p.docs || []).map(d => d.doc_type);
+  const next = !p.owner_name || !p.completion_date ? ['info', '先补齐申请人和开发完成日期', '填写申请信息']
+    : !(p.source_files || []).length ? ['code', '上传实际软件的源代码', '上传代码']
+    : !kinds.includes('form') || !(kinds.includes('manual') || kinds.includes('design')) ? ['gen', '准备说明书和申请表，可以手动填写', '准备材料']
+    : ['review', '材料已备齐，检查问题后即可下载', '去检查问题'];
   const sm = STATUS_META[p.status] || STATUS_META.draft;
   return `
   <div class="row spread" style="margin-bottom:14px;">
@@ -1225,12 +1236,14 @@ function projectViewHTML(p) {
         `<option value="${k}" ${p.status === k ? "selected" : ""}>${v.label}</option>`).join("")}
     </select>
   </div>
-  <div class="tabs">${TABS.map(([k, n, ic]) => `<div class="tab ${state.tab === k ? "active" : ""}" data-tab="${k}">${icon(ic, 14.5)}${n}</div>`).join("")}</div>
+  <div class="card row spread"><div><b>下一步：${next[1]}</b><div class="muted">信息、代码、材料和检查都保存在当前项目。</div></div><button class="btn btn-primary" data-next-tab="${next[0]}">${next[2]}</button></div>
+  <div class="tabs">${TABS.map(([k, n, ic]) => `<button type="button" class="tab ${state.tab === k ? "active" : ""}" data-tab="${k}">${icon(ic, 14.5)}${n}</button>`).join("")}</div>
   <div id="tab-body"></div>
   <input type="file" id="hidden-file" multiple style="display:none;" accept=".py,.js,.ts,.vue,.java,.go,.rs,.c,.cpp,.h,.cs,.php,.rb,.kt,.swift,.sql,.sh,.html,.css,.json,.yaml,.yml,.xml,.zip">`;
 }
 
 function bindProjectEvents(p) {
+  $('[data-next-tab]').onclick = e => { state.tab = e.currentTarget.dataset.nextTab; loadProjectView(); };
   $$(".tab").forEach(t => t.onclick = () => { state.tab = t.dataset.tab; loadProjectView(); });
   const statusSel = $("#status-select");
   if (statusSel) statusSel.onchange = async () => {
@@ -1283,7 +1296,7 @@ function tabInfo(p, body) {
       <div class="field full"><label>主要功能描述</label><textarea id="e-func">${esc(p.main_functions)}</textarea></div>
       <div class="field full"><label>AI 使用情况</label><select id="e-ai">
         <option value="unknown" ${p.ai_usage === "unknown" ? "selected" : ""}>待核实</option><option value="no_ai" ${p.ai_usage === "no_ai" ? "selected" : ""}>未使用 AI</option><option value="ai_assisted" ${p.ai_usage === "ai_assisted" ? "selected" : ""}>AI 辅助开发 + 人工实质性修改</option>
-        <option value="ai_heavy" ${p.ai_usage === "ai_heavy" ? "selected" : ""}>AI 参与较多，人工核心设计重构</option></select></div>
+        <option value="ai_heavy" ${p.ai_usage === "ai_heavy" ? "selected" : ""}>AI 参与较多（需核实人工贡献）</option></select></div>
       <div class="field full"><label>Git 提交记录（过程证据）</label><textarea id="e-git" style="min-height:80px;">${esc(p.git_log)}</textarea></div>
     </div>
     <div class="row mt" style="justify-content:flex-end;"><button class="btn btn-primary" id="e-save">保存</button>
@@ -1314,7 +1327,7 @@ function tabInfo(p, body) {
 async function tabCode(p, body) {
   body.innerHTML = `
   <div class="card">
-    <h3>${icon("upload", 16)} 导入源代码 <span class="hint">粘贴或上传 AI 生成的项目源码（支持多文件 / zip 包）</span></h3>
+    <h3>${icon("upload", 16)} 导入源代码 <span class="hint">粘贴或上传实际项目源码（支持多文件 / zip 包）</span></h3>
     <p class="muted">推荐上传项目的 ZIP 压缩包。下面也可以直接粘贴代码。</p><div class="field"><textarea id="paste-code" style="min-height:170px;font-family:var(--font-mono);font-size:12px;" placeholder="把源代码粘贴到这里（会作为一个文件导入；多文件建议打包 zip 上传）"></textarea></div>
     <div class="row mt">
       <button class="btn btn-primary" id="btn-paste">${icon("code", 15)} 导入粘贴的代码</button>
@@ -1334,7 +1347,8 @@ async function tabCode(p, body) {
   };
   $("#btn-upload").onclick = () => $("#hidden-file").click();
   const st = await api(`/api/projects/${p.id}/code/stats`).catch(() => null);
-  const el = $("#code-stats");
+  if (!body.isConnected) return;
+  const el = $("#code-stats", body);
   if (!el) return;
   if (!st || !st.total_lines) { el.innerHTML = `<div class="empty"><div class="big">${icon("filecode", 46)}</div>尚未导入源代码</div>`; return; }
   el.innerHTML = `
@@ -1416,6 +1430,11 @@ function tabGen(p, body) {
   body.prepend(entry);
   $("#manual-entry", entry).onclick = () => editDoc(p.id, $("#manual-kind", entry).value);
   loadShots(p);
+  if (!(state.health && state.health.llm_configured)) {
+    $("#btn-all", body).disabled = true;
+    $("#btn-all", body).textContent = "AI未连接，请使用上方录入材料";
+    $$("[data-gen]", body).forEach(button => { button.disabled = true; });
+  }
   $$("#doc-kind-cards .radio-card").forEach(c => c.onclick = () =>
     $$("#doc-kind-cards .radio-card").forEach(x => x.classList.toggle("active", x === c)));
   const selectedKind = () => {
@@ -1472,6 +1491,11 @@ async function loadShots(p) {
   $$("[data-delshot]", box).forEach(b => b.onclick = async () => {
     await api(`/api/projects/${p.id}/shots/${b.dataset.delshot}`, { method: "DELETE" });
     loadShots(p);
+  if (!(state.health && state.health.llm_configured)) {
+    $("#btn-all", body).disabled = true;
+    $("#btn-all", body).textContent = "AI未连接，请使用上方录入材料";
+    $$("[data-gen]", body).forEach(button => { button.disabled = true; });
+  }
   });
   // 从已生成的说明书中提取未替换的截图占位，点击可快速填入名称
   const phBox = $("#shot-placeholders");
@@ -1504,6 +1528,11 @@ async function loadShots(p) {
     toast(`截图已入库：${data.label}`);
     fileInput.value = "";
     loadShots(p);
+  if (!(state.health && state.health.llm_configured)) {
+    $("#btn-all", body).disabled = true;
+    $("#btn-all", body).textContent = "AI未连接，请使用上方录入材料";
+    $$("[data-gen]", body).forEach(button => { button.disabled = true; });
+  }
   };
 }
 
@@ -1610,6 +1639,7 @@ async function tabReview(p, body) {
   </div>
   <div class="card"><h3>${icon("clock", 16)} 历史审查记录</h3><div id="review-history"><div class="empty">加载中…</div></div></div>`;
   const checklist = await api(`/api/projects/${p.id}/submission`);
+  if (!body.isConnected) return;
   const checks = document.createElement('div'); checks.className = 'card';
   checks.innerHTML = `<h3>最后三项确认</h3><p class="muted">${checklist.stale ? '材料已变化或尚未核对，请重新确认。' : '已保存当前材料的核对结果。'}这些事项无法仅靠自动审查确认。</p>${Object.entries(checklist.items).map(([key,label]) => `<label class="kbd-line"><input type="checkbox" data-check="${key}" ${checklist.checks[key] ? 'checked' : ''}> ${esc(label)}</label>`).join('')}<div class="field mt"><label>补正通知指定截止日期（收到通知后填写）</label><input type="date" id="correction-due" value="${esc(checklist.correction_due || '')}"></div><div class="field"><label>补正逐项处理记录</label><textarea id="correction-notes">${esc(checklist.correction_notes || '')}</textarea></div><button class="btn btn-primary mt" id="save-checks">保存确认</button>`;
   body.prepend(checks);
@@ -1617,11 +1647,13 @@ async function tabReview(p, body) {
     const btn = $('#save-checks', checks); btn.disabled = true;
     try {
       await api(`/api/projects/${p.id}/submission`, {method:'PUT', body:{checks:Object.fromEntries($$('[data-check]', checks).map(el => [el.dataset.check, el.checked])), correction_due:$('#correction-due', checks).value, correction_notes:$('#correction-notes', checks).value}});
-      toast('已保存，请重新运行预检');
+      toast('已保存，正在检查材料');
+      $('#btn-review', body).click();
     } catch (e) { toast(e.message, true); }
     finally { btn.disabled = false; }
   };
   const reports = await api(`/api/projects/${p.id}/reports`).catch(() => ({ reports: [] }));
+  if (!body.isConnected) return;
   $("#review-history").innerHTML = reports.reports.length ? `<div class="table-wrap"><table class="table">
     <thead><tr><th>时间</th><th>结论</th><th>阻断项</th><th>提醒项</th><th></th></tr></thead><tbody>
     ${reports.reports.map(r => `<tr><td>${esc(r.created_at)}</td>
@@ -1639,11 +1671,12 @@ async function tabReview(p, body) {
     try {
       const r = await api(`/api/projects/${p.id}/review`, { method: "POST", body: { include_llm: true } });
       renderReport(r.issues, r.passed);
-      if (!(state.health && state.health.llm_configured)) toast("提示：未配置 LLM，仅执行硬校验（配置后可加 AI 软审查）");
-    } catch (e) { $("#review-result").innerHTML = ""; toast(e.message, true); }
+      if (!(state.health && state.health.llm_configured)) toast("已完成自动检查；连接AI后可增加辅助审查");
+    } catch (e) { if (body.isConnected) $("#review-result", body).innerHTML = ""; toast(e.message, true); }
     btn.disabled = false; btn.innerHTML = `${icon("shield", 16)} 检查我的材料`;
   };
   function renderReport(issues, passed) {
+    if (!body.isConnected) return;
     const blockers = issues.filter(i => i.level === "blocker");
     const warnings = issues.filter(i => i.level === "warning");
     $("#review-result").innerHTML = `
@@ -1668,6 +1701,7 @@ function catColor(c) {
 async function tabKB(p, body) {
   const rules = await api(`/api/kb/rules?project_id=${p.id}`).then(d => d.rules).catch(() => []);
   const cases = await api("/api/kb/cases").then(d => d.cases).catch(() => []);
+  if (!body.isConnected) return;
   body.innerHTML = `
   <div class="card" style="border-color:var(--warn);background:linear-gradient(180deg,var(--warn-soft),var(--card) 55%);">
     <h3>${icon("refresh", 16)} 驳回流：把打回的问题变成下次的免疫力 <span class="hint">核心闭环：补正通知 → AI 归因 → 规避规则 → 自动生效</span></h3>
@@ -1735,6 +1769,7 @@ async function tabKB(p, body) {
 /* ---- Tab: 导出下载 ---- */
 async function tabExport(p, body) {
   const files = await api(`/api/projects/${p.id}/files`).catch(() => ({ files: [] }));
+  if (!body.isConnected) return;
   const docTypes = (p.docs || []).map(d => d.doc_type);
   const manualType = docTypes.includes("manual") ? "manual" : docTypes.includes("design") ? "design" : null;
   const printBtn = (type, enabled) => enabled
@@ -1746,10 +1781,10 @@ async function tabExport(p, body) {
       <div class="doc-item"><div><div class="t">${icon("filecode", 17)} 源程序鉴别材料（docx）</div><div class="m">每页50行 · 页眉含名称版本 · 自动页码 · 前30后30截取</div></div>
         <div class="row">${printBtn("source", true)}
         <button class="btn btn-primary btn-sm" data-dl="source">下载</button></div></div>
-      <div class="doc-item"><div><div class="t">${icon("book", 17)} 操作/设计说明书（docx）</div><div class="m">含截图自动嵌入 · 每页约30行 · 下载后替换剩余占位打印</div></div>
+      <div class="doc-item"><div><div class="t">${icon("book", 17)} 操作/设计说明书（docx）</div><div class="m">含截图自动嵌入 · 每页约30行 · 对应真实功能，检查截图与分页</div></div>
         <div class="row">${printBtn(manualType, !!manualType)}
         <button class="btn btn-primary btn-sm" data-dl="manual">下载</button></div></div>
-      <div class="doc-item"><div><div class="t">${icon("clipboard", 17)} 申请表预填清单（docx）</div><div class="m">对照官网申请表逐项复制 · 附 AI 声明全文</div></div>
+      <div class="doc-item"><div><div class="t">${icon("clipboard", 17)} 申请表预填清单（docx）</div><div class="m">对照官网申请表逐项复制 · 已准备的声明会附在后面</div></div>
         <div class="row">${printBtn("form", docTypes.includes("form"))}
         <button class="btn btn-primary btn-sm" data-dl="form">下载</button></div></div>
       <div class="doc-item"><div><div class="t">${icon("archive", 17)} 开发过程记录（docx）</div><div class="m">创作过程证据链材料，备查</div></div>
@@ -1765,22 +1800,30 @@ async function tabExport(p, body) {
       ${files.files.map(f => `<div class="kbd-line">${icon("filetext", 14)} <a href="${esc(API + "/api/projects/" + p.id + "/files/" + encodeURIComponent(f))}" download style="color:var(--accent);text-decoration:none;">${esc(f)}</a></div>`).join("")}</div>` : ""}
   </div>
   <div class="card">
-    <h3>${icon("listcheck", 16)} 最后三项确认（平台已自动检查大部分，剩下需要你动手）</h3>
+    <h3>${icon("listcheck", 16)} 正式提交前</h3>
     <div class="kbd-line"><span class="tag blue">1</span><span>在中国版权保护中心官网 <b>ccopyright.com.cn</b> 进入登记系统，核对字段并按提示签章上传</span></div>
     <div class="kbd-line"><span class="tag blue">2</span><span>打开说明书 docx，把剩余的【截图占位框】替换为<b>真实界面截图</b>（已上传截图的会自动嵌入）</span></div>
     <div class="kbd-line"><span class="tag blue">3</span><span>按当前登记系统要求准备文件，核对<b>签章、PDF分页和清晰度</b>；不要沿用旧的邮寄流程</span></div>
-    <div class="kbd-line"><span class="tag blue">4</span><span>合规审查页 <b>blocker 清零</b> 后再提交；AI 声明口径与实际开发过程一致</span></div>
+    <div class="kbd-line"><span class="tag blue">4</span><span>检查问题页 <b>待处理项清零</b> 后再提交；AI 声明口径与实际开发过程一致</span></div>
   </div>`;
   $$("[data-print]", body).forEach(b => b.onclick = () => {
     if (!/^(source|manual|design|form|declaration|evidence)$/.test(b.dataset.print)) return;
     window.open(`${API}/api/projects/${p.id}/print/${b.dataset.print}`, "_blank");
   });
+  for (const kind of ['source', 'manual', 'form', 'bundle']) {
+    const ready = kind === 'source' ? (p.source_files || []).length > 0 : kind === 'manual' ? !!manualType : kind === 'form' ? docTypes.includes('form') : (p.source_files || []).length > 0 && !!manualType && docTypes.includes('form');
+    const button = $(`[data-dl="${kind}"]`, body);
+    button.disabled = !ready;
+    if (!ready) button.textContent = '请先准备材料';
+  }
   const DL_KINDS = ["source", "manual", "form", "evidence", "bundle"];
-  $$("[data-dl]", body).forEach(b => b.onclick = () => {
+  $$("[data-dl]", body).forEach(b => b.onclick = async () => {
     const kind = b.dataset.dl;
     if (!DL_KINDS.includes(kind)) return;
     const url = kind === "bundle" ? `${API}/api/projects/${p.id}/export/bundle` : `${API}/api/projects/${p.id}/export/${kind}`;
-    fetch(url).then(res => {
+    b.disabled = true;
+    const originalText = b.textContent; b.textContent = "正在打包…";
+    await fetch(url).then(res => {
       if (!res.ok) return res.json().then(d => { throw new Error(d.detail || "导出失败"); });
       return res.blob().then(blob => {
         const dispo = res.headers.get("content-disposition") || "";
@@ -1791,7 +1834,7 @@ async function tabExport(p, body) {
         a.href = URL.createObjectURL(blob); a.download = name; a.click();
         URL.revokeObjectURL(a.href);
       });
-    }).catch(e => toast(e.message, true));
+    }).catch(e => toast(e.message, true)).finally(() => { b.disabled = false; b.textContent = originalText; });
   });
 }
 
@@ -1842,6 +1885,12 @@ $("#btn-new-side").onclick = () => openProjectModal(null);
 $("#btn-home").onclick = () => showDashboard();
 $("#btn-index").onclick = () => showIndex();
 window.openProject = openProject;
+window.addEventListener('hashchange', () => {
+  const match = location.hash.match(/^#\/project\/(\d+)$/);
+  if (match) openProject(+match[1]);
+  else if (location.hash === '#/index') { if (state.currentId !== null || !$('#btn-index').classList.contains('active')) showIndex(); }
+  else if (state.currentId !== null || !$('#btn-home').classList.contains('active')) showDashboard();
+});
 boot();
 
 </script>
