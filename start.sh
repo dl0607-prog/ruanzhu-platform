@@ -18,6 +18,6 @@ else
   echo "[2/3] .env 已存在"
 fi
 
-echo "[3/3] 启动服务：http://127.0.0.1:8310"
+echo "[3/3] 启动服务：本机 http://localhost:8310（局域网设备可用 http://本机IP:8310）"
 cd backend
-exec ../.venv/bin/python -m uvicorn app.main:app --port 8310
+exec ../.venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8310

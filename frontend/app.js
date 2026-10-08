@@ -32,6 +32,7 @@ const ICONS = {
   camera: '<path d="M3 19V9a1.5 1.5 0 0 1 1.5-1.5H7l1.8-2.5h6.4L17 7.5h2.5A1.5 1.5 0 0 1 21 9v10z"/><circle cx="12" cy="13.5" r="3.2"/>',
   clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.2 1.8"/>',
   folderopen: '<path d="M3 6.5A1.5 1.5 0 0 1 4.5 5h4l2 2.5h8A1.5 1.5 0 0 1 20 9v1H6.8a2 2 0 0 0-1.9 1.4L3 16.5z"/><path d="m3.4 16 1.6-5a2 2 0 0 1 1.9-1.4H21a1 1 0 0 1 1 1.3l-1.6 5.4A2 2 0 0 1 18.5 18H5a2 2 0 0 1-1.9-1.4z"/>',
+  link: '<path d="M10 14a5 5 0 0 0 7.1 0l2-2a5 5 0 0 0-7.1-7.1l-1.1 1.1"/><path d="M14 10a5 5 0 0 0-7.1 0l-2 2a5 5 0 0 0 7.1 7.1l1.1-1.1"/>',
 };
 
 function icon(name, size) {
@@ -153,7 +154,10 @@ function md2html(md) {
   closeList(); closeTable();
   return html;
   function inline(s) {
-    return esc(s).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");
+    return esc(s)
+      .replace(/\*\*(.+?)\*\*/g, "<b>$1</b>")
+      .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
+        '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
   }
 }
 
@@ -200,6 +204,7 @@ function renderSidebar() {
 function openProject(id) {
   state.currentId = id;
   state.tab = "info";
+  setNav(null);
   renderSidebar();
   location.hash = "#/project/" + id;
   loadProjectView();
@@ -219,10 +224,38 @@ async function loadProjectView() {
 
 function currentProject() { return state.projects.find(p => p.id === state.currentId); }
 
+/* ---------------- GitHub 参考索引页 ---------------- */
+function setNav(activeId) {
+  const ids = ["btn-home", "btn-index"];
+  ids.forEach(id => { const el = $("#" + id); if (el) el.classList.toggle("active", id === activeId); });
+  $$(".proj-item").forEach(el => el.classList.remove("active"));
+}
+
+async function showIndex() {
+  state.currentId = null;
+  setNav("btn-index");
+  setPage("GitHub 参考项目索引", "软著相关开源项目调研（GitHub API 实测核实）");
+  location.hash = "#/index";
+  if (location.protocol === "file:") {
+    $("#main-area").innerHTML = `<div class="card"><div class="empty"><div class="big">${icon("link", 46)}</div>单文件预览模式下参考索引不可用。<br>完整功能请运行 <b>./start.sh</b> 后访问 <b>http://127.0.0.1:8310</b>。</div></div>`;
+    hydrateIcons($("#main-area"));
+    return;
+  }
+  try {
+    const res = await fetch("/static/github-index.md");
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const md = await res.text();
+    $("#main-area").innerHTML = `<div class="card"><div class="md">${md2html(md)}</div></div>`;
+  } catch (e) {
+    $("#main-area").innerHTML = `<div class="card"><div class="empty">索引加载失败：${esc(e.message)}</div></div>`;
+  }
+}
+
 /* ---------------- 仪表盘 ---------------- */
 async function showDashboard() {
   location.hash = "#/";
   state.currentId = null;
+  setNav("btn-home");
   setPage("项目总览", "一站式生成能通过审查的软著申请材料");
   renderSidebar();
   let rules = [];
@@ -910,6 +943,7 @@ async function boot() {
     setPage("服务未连接", "请确认后端已启动（./start.sh）");
   }
   const m = location.hash.match(/^#\/project\/(\d+)/);
+  if (location.hash === "#/index") { showIndex(); return; }
   if (m && state.projects.some(p => p.id === +m[1])) { state.currentId = +m[1]; loadProjectView(); }
   else showDashboard();
 }
@@ -917,5 +951,6 @@ async function boot() {
 $("#btn-new-top").onclick = () => openProjectModal(null);
 $("#btn-new-side").onclick = () => openProjectModal(null);
 $("#btn-home").onclick = () => showDashboard();
+$("#btn-index").onclick = () => showIndex();
 window.openProject = openProject;
 boot();

@@ -473,6 +473,8 @@ html[data-theme="dark"] .tab.active { color: #fff; }
 .md h2 { font-size: 17px; margin: 18px 0 9px; padding-bottom: 7px; border-bottom: 1px solid var(--line); }
 .md h3 { font-size: 14.5px; margin: 13px 0 6px; color: var(--accent); }
 .md p, .md li { line-height: 1.9; }
+.md a { color: var(--accent); text-decoration: none; word-break: break-all; }
+.md a:hover { text-decoration: underline; }
 .md ul, .md ol { padding-left: 22px; margin: 6px 0; }
 .md .shot {
   background: var(--accent-soft); border: 1.5px dashed var(--accent);
