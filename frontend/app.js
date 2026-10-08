@@ -315,6 +315,101 @@ async function showDashboard() {
   });
 }
 
+/* ---------------- 自绘日期选择器（内嵌浏览器不支持原生日历控件） ---------------- */
+function toISODate(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function dateField(id, value, placeholder) {
+  return `<div class="dp" id="dp-${id}">
+    <input class="dp-input" id="${id}" readonly autocomplete="off"
+      placeholder="${esc(placeholder || "点击选择日期")}" value="${esc(value || "")}">
+    <div class="dp-pop"></div>
+  </div>`;
+}
+
+function initDatePicker(root) {
+  $$(".dp", root).forEach(dp => {
+    const input = dp.querySelector(".dp-input");
+    const pop = dp.querySelector(".dp-pop");
+    if (!input || !pop) return;
+    const build = () => {
+      let y = +(dp.dataset.y || 0), m = +(dp.dataset.m || 0);
+      if (!y) {
+        const base = input.value ? new Date(input.value + "T00:00:00") : new Date();
+        const ok = !isNaN(base.getTime());
+        y = ok ? base.getFullYear() : new Date().getFullYear();
+        m = ok ? base.getMonth() : new Date().getMonth();
+        dp.dataset.y = y; dp.dataset.m = m;
+      }
+      const today = new Date();
+      let html = `<div class="dp-head">
+        <button type="button" class="dp-nav" data-step="-1">‹</button>
+        <span class="dp-title">${y} 年 ${m + 1} 月</span>
+        <button type="button" class="dp-nav" data-step="1">›</button></div>
+        <div class="dp-grid">`;
+      ["日", "一", "二", "三", "四", "五", "六"].forEach(w => { html += `<span class="dp-dow">${w}</span>`; });
+      const firstDow = new Date(y, m, 1).getDay();
+      const days = new Date(y, m + 1, 0).getDate();
+      for (let i = 0; i < firstDow; i++) html += `<span class="dp-blank"></span>`;
+      for (let d = 1; d <= days; d++) {
+        const iso = `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+        const cls = ["dp-day"];
+        if (iso === input.value) cls.push("sel");
+        if (iso === toISODate(today)) cls.push("today");
+        html += `<button type="button" class="${cls.join(" ")}" data-v="${iso}">${d}</button>`;
+      }
+      html += `</div><div class="dp-foot">
+        <button type="button" class="dp-today">今天：${toISODate(today)}</button>
+        <button type="button" class="dp-clear">清除</button></div>`;
+      pop.innerHTML = html;
+    };
+    const close = () => { pop.style.display = "none"; delete dp.dataset.y; delete dp.dataset.m; };
+    input.addEventListener("click", e => {
+      e.stopPropagation();
+      $$(".dp-pop", root).forEach(pp => { pp.style.display = "none"; });
+      if (pop.style.display === "block") { pop.style.display = "none"; return; }
+      build();
+      pop.style.display = "block";
+    });
+    pop.addEventListener("click", e => {
+      const nav = e.target.closest(".dp-nav");
+      if (nav) {
+        let y = +(dp.dataset.y || new Date().getFullYear());
+        let m = +(dp.dataset.m || new Date().getMonth()) + (+nav.dataset.step);
+        if (m < 0) { m = 11; y -= 1; }
+        if (m > 11) { m = 0; y += 1; }
+        dp.dataset.y = y; dp.dataset.m = m;
+        build();
+      }
+      const day = e.target.closest(".dp-day");
+      if (day) { input.value = day.dataset.v; close(); }
+      if (e.target.closest(".dp-today")) { input.value = toISODate(new Date()); close(); }
+      if (e.target.closest(".dp-clear")) { input.value = ""; close(); }
+      e.stopPropagation();
+    });
+    document.addEventListener("click", () => { pop.style.display = "none"; });
+  });
+}
+
+/* ---------------- 快捷选项 chips（点击即填，免打字） ---------------- */
+function chipsField(id, items) {
+  return `<div class="chips">${items.map(it => {
+    const label = typeof it === "string" ? it : it.label;
+    const value = typeof it === "string" ? it : it.value;
+    return `<button type="button" class="chip" data-target="${id}" data-value="${esc(value)}">${esc(label)}</button>`;
+  }).join("")}</div>`;
+}
+
+function initChips(root) {
+  $$(".chip", root).forEach(ch => {
+    ch.onclick = () => {
+      const t = $("#" + ch.dataset.target, root);
+      if (t) { t.value = ch.dataset.value; t.focus(); }
+    };
+  });
+}
+
 /* ---------------- 新建/编辑项目弹窗 ---------------- */
 function openProjectModal(p) {
   const m = document.createElement("div");
@@ -324,11 +419,13 @@ function openProjectModal(p) {
     <div class="modal-body">
       <div class="form-grid">
         <div class="field full"><label><b>*</b>软件全称（建议以 系统/软件/平台 结尾，禁用"中国/国家"等词）</label>
-          <input id="f-full" placeholder="如：企业数据智能同步系统" value="${esc(p ? p.full_name : "")}"></div>
+          <input id="f-full" placeholder="如：企业数据智能同步系统" value="${esc(p ? p.full_name : "")}">
+          ${chipsField("f-full", ["库存管理系统", "订单管理软件", "数据分析平台", "文件同步工具"])}</div>
         <div class="field"><label>软件简称（可选）</label><input id="f-short" value="${esc(p ? p.short_name : "")}"></div>
-        <div class="field"><label>版本号（V1.0 格式）</label><input id="f-ver" value="${esc(p ? p.version : "V1.0")}"></div>
-        <div class="field"><label>开发完成日期</label><input type="date" id="f-comp" value="${esc(p ? p.completion_date : "")}"></div>
-        <div class="field"><label>首次发表日期（未发表留空）</label><input id="f-pub" placeholder="未发表" value="${esc(p ? p.publish_date : "")}"></div>
+        <div class="field"><label>版本号（点选即可）</label><input id="f-ver" value="${esc(p ? p.version : "V1.0")}">
+          ${chipsField("f-ver", ["V1.0", "V1.1", "V2.0"])}</div>
+        <div class="field"><label>开发完成日期（点选日期）</label>${dateField("f-comp", p ? p.completion_date : "", "点击选择开发完成日期")}</div>
+        <div class="field"><label>首次发表日期（未发表留空）</label>${dateField("f-pub", p ? p.publish_date : "", "点击选择发表日期")}</div>
         <div class="field"><label>开发方式</label><select id="f-dev">
           ${["独立开发", "合作开发", "委托开发"].map(x => `<option ${p && p.dev_type === x ? "selected" : ""}>${x}</option>`).join("")}</select></div>
         <div class="field"><label>著作权人（名称）</label><input id="f-owner" value="${esc(p ? p.owner_name : "")}"></div>
@@ -340,7 +437,11 @@ function openProjectModal(p) {
           <option value="ai_heavy" ${p && p.ai_usage === "ai_heavy" ? "selected" : ""}>AI 参与较多，人工做了核心设计与重构</option></select></div>
         <div class="field"><label>技术栈（可选）</label><input id="f-tech" placeholder="如：Python FastAPI + Vue3" value="${esc(p ? p.tech_stack : "")}"></div>
         <div class="field full"><label>主要功能描述（给 AI 的功能说明，越具体生成质量越高）</label>
-          <textarea id="f-func" placeholder="例如：这是一个把电商订单从多个平台同步到本地 ERP 的工具，包含订单拉取、字段映射、冲突处理、日志报表四个模块…">${esc(p ? p.main_functions : "")}</textarea></div>
+          <textarea id="f-func" placeholder="例如：这是一个把电商订单从多个平台同步到本地 ERP 的工具，包含订单拉取、字段映射、冲突处理、日志报表四个模块…">${esc(p ? p.main_functions : "")}</textarea>
+          ${chipsField("f-func", [
+            {label: "示例：电商订单同步", value: "这是一个把电商订单从多个平台同步到本地 ERP 的工具，包含订单拉取、字段映射、冲突处理、日志报表四个模块"},
+            {label: "示例：个人记账", value: "这是一个个人记账软件，可以记录收入和支出，支持分类统计与月度报表导出"},
+          ])}</div>
         <div class="field full"><label>Git 提交记录（可选，粘贴 git log --oneline 用于过程证据）</label>
           <textarea id="f-git" style="min-height:70px;" placeholder="a1b2c3d 初版订单拉取模块&#10;e4f5g6h 字段映射与冲突处理">${esc(p ? p.git_log : "")}</textarea></div>
       </div>
@@ -350,6 +451,8 @@ function openProjectModal(p) {
       </div>
     </div></div>`;
   document.body.appendChild(m);
+  initDatePicker(m);
+  initChips(m);
   $(".modal-close", m).onclick = () => m.remove();
   $("#m-cancel", m).onclick = () => m.remove();
   m.onclick = e => { if (e.target === m) m.remove(); };
@@ -433,8 +536,8 @@ function tabInfo(p, body) {
       <div class="field full"><label><b>*</b>软件全称</label><input id="e-full" value="${esc(p.full_name)}"></div>
       <div class="field"><label>软件简称</label><input id="e-short" value="${esc(p.short_name)}"></div>
       <div class="field"><label>版本号</label><input id="e-ver" value="${esc(p.version)}"></div>
-      <div class="field"><label>开发完成日期</label><input type="date" id="e-comp" value="${esc(p.completion_date)}"></div>
-      <div class="field"><label>首次发表日期</label><input id="e-pub" value="${esc(p.publish_date)}"></div>
+      <div class="field"><label>开发完成日期（点选日期）</label>${dateField("e-comp", p.completion_date, "点击选择开发完成日期")}</div>
+      <div class="field"><label>首次发表日期（未发表留空）</label>${dateField("e-pub", p.publish_date, "点击选择发表日期")}</div>
       <div class="field"><label>开发方式</label><select id="e-dev">${["独立开发", "合作开发", "委托开发"].map(x => `<option ${p.dev_type === x ? "selected" : ""}>${x}</option>`).join("")}</select></div>
       <div class="field"><label>著作权人</label><input id="e-owner" value="${esc(p.owner_name)}"></div>
       <div class="field"><label>技术栈</label><input id="e-tech" value="${esc(p.tech_stack)}"></div>
@@ -458,6 +561,8 @@ function tabInfo(p, body) {
     toast("已保存"); refreshProjects().then(loadProjectView);
   };
   $("#e-edit2").onclick = () => openProjectModal(p);
+  initDatePicker(body);
+  initChips(body);
 }
 
 /* ---- Tab: 源代码 ---- */
