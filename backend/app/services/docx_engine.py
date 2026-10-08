@@ -75,7 +75,7 @@ def _setup_section(doc: Document, header_text: str):
 def _body_paragraph(doc: Document, text: str, size: float, line_pt: float,
                     ascii_font: str = "Times New Roman", east_font: str = "宋体",
                     bold: bool = False, align=None, first_line_indent: bool = False,
-                    space_after: float = 0):
+                    space_after: float = 0, color: Optional[str] = None):
     p = doc.add_paragraph()
     pf = p.paragraph_format
     pf.line_spacing = Pt(line_pt)
@@ -86,7 +86,8 @@ def _body_paragraph(doc: Document, text: str, size: float, line_pt: float,
     if first_line_indent:
         pf.first_line_indent = Pt(size * 2)
     run = p.add_run(text)
-    _set_run_font(run, ascii_font=ascii_font, east_font=east_font, size=size, bold=bold)
+    _set_run_font(run, ascii_font=ascii_font, east_font=east_font, size=size, bold=bold,
+                  color=color)
     return p
 
 
