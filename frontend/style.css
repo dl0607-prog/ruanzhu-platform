@@ -429,11 +429,12 @@ html[data-theme="dark"] .pbar { background: var(--card-2); }
 
 /* ---------------- 页签 ---------------- */
 .tabs {
-  display: flex; gap: 4px; background: var(--card);
+  display: flex; flex-wrap: wrap; gap: 4px; background: var(--card);
   border: 1px solid var(--line); border-radius: 12px; padding: 5px;
-  box-shadow: var(--shadow); margin-bottom: 18px; overflow-x: auto;
+  box-shadow: var(--shadow); margin-bottom: 18px;
 }
 .tab {
+  border: 0; background: transparent; font-family: inherit;
   padding: 8px 17px; border-radius: 9px; cursor: pointer;
   font-size: 13.5px; font-weight: 500; color: var(--text-2); white-space: nowrap;
   display: flex; align-items: center; gap: 7px; transition: all .15s;

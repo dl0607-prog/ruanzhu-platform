@@ -1,5 +1,6 @@
 """项目管理与源代码导入路由。"""
 import io
+import shutil
 import zipfile
 from typing import Any, Dict, List
 
@@ -7,6 +8,7 @@ from fastapi import APIRouter, HTTPException, UploadFile
 from pydantic import BaseModel
 
 from .. import database as db
+from .. import auth, config
 from ..services import code_engine
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
@@ -23,7 +25,7 @@ class ProjectIn(BaseModel):
     owner_type: str = "个人"
     main_functions: str = ""
     tech_stack: str = ""
-    ai_usage: str = "ai_assisted"
+    ai_usage: str = "unknown"
     git_log: str = ""
     status: str = "draft"
 
@@ -44,23 +46,23 @@ def _decode(data: bytes) -> str:
 
 def _store_files(pid: int, raw_files: List[Dict[str, Any]], replace: bool) -> Dict[str, Any]:
     cleaned: List[Dict[str, Any]] = []
-    total = 0
     for f in raw_files:
         name = str(f.get("filename") or "code.txt")[:200]
         content, n = code_engine.clean_code(str(f.get("content") or ""))
         if n == 0:
             continue
         cleaned.append({"filename": name, "content": content, "line_count": n})
-        total += n
+    if not cleaned:
+        raise HTTPException(400, "清洗后没有有效源代码，原有文件已保留")
     if replace:
         db.replace_source_files(pid, cleaned)
     else:
         base = len(db.list_source_files(pid))
         for i, f in enumerate(cleaned):
             db.add_source_file(pid, f["filename"], f["content"], f["line_count"], base + i)
-    db.update_project(pid, {"code_lines_total": total})
-    pages = code_engine.build_pages(
-        [{"filename": f["filename"], "content": f["content"]} for f in cleaned])
+    stored = db.get_source_contents(pid)
+    db.update_project(pid, {"code_lines_total": sum(f["line_count"] for f in stored)})
+    pages = code_engine.build_pages(stored)
     return {"files_stored": len(cleaned), "total_lines": pages["total_lines"],
             "pages_submitted": pages["pages_submitted"], "mode": pages["mode"]}
 
@@ -68,7 +70,10 @@ def _store_files(pid: int, raw_files: List[Dict[str, Any]], replace: bool) -> Di
 @router.get("")
 def list_projects():
     out = []
+    ids = auth.owned_ids()
     for p in db.list_projects():
+        if p["id"] not in ids:
+            continue
         p["source_files"] = len(db.list_source_files(p["id"]))
         p["docs"] = {d["doc_type"]: d["title"] for d in db.list_docs(p["id"])}
         out.append(p)
@@ -99,13 +104,20 @@ def get_project(pid: int):
 def update_project(pid: int, body: ProjectIn):
     if not db.get_project(pid):
         raise HTTPException(404, "项目不存在")
-    db.update_project(pid, body.model_dump())
+    fields = body.model_dump(exclude_unset=True)
+    if "full_name" in fields and not fields["full_name"].strip():
+        raise HTTPException(400, "软件全称不能为空")
+    if "status" in fields and fields["status"] not in ALLOWED_STATUS:
+        raise HTTPException(400, "非法状态值")
+    db.update_project(pid, fields)
     return {"ok": True}
 
 
 @router.delete("/{pid}")
 def delete_project(pid: int):
     db.delete_project(pid)
+    shutil.rmtree(config.DATA_DIR / "shots" / f"project_{pid}", ignore_errors=True)
+    shutil.rmtree(config.EXPORT_DIR / f"project_{pid}", ignore_errors=True)
     return {"ok": True}
 
 
@@ -143,10 +155,19 @@ async def upload_code(pid: int, files: List[UploadFile]):
         raise HTTPException(404, "项目不存在")
     raw_files: List[Dict[str, Any]] = []
     for up in files:
-        data = await up.read()
+        data = await up.read(20 * 1024 * 1024 + 1)
+        if len(data) > 20 * 1024 * 1024:
+            raise HTTPException(413, "单个上传文件不能超过 20MB")
         name = up.filename or "code.txt"
         if name.lower().endswith(".zip"):
-            with zipfile.ZipFile(io.BytesIO(data)) as zf:
+            try:
+                archive = zipfile.ZipFile(io.BytesIO(data))
+            except zipfile.BadZipFile:
+                raise HTTPException(400, "ZIP 文件损坏或格式无效，请重新打包上传")
+            with archive as zf:
+                entries = zf.infolist()
+                if len(entries) > 5000 or sum(i.file_size for i in entries) > 100 * 1024 * 1024:
+                    raise HTTPException(413, "ZIP 解压后不能超过 100MB 或 5000 个条目")
                 for info in zf.infolist():
                     if info.is_dir():
                         continue

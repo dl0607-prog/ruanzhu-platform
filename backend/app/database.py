@@ -1,5 +1,6 @@
 """数据层：SQLAlchemy ORM（Query API 风格），模型即表结构，读写全部走 ORM 会话。"""
 import json
+import hashlib
 from contextlib import contextmanager
 from datetime import datetime
 from typing import Any, Dict, Iterator, List, Optional
@@ -167,6 +168,10 @@ def create_project(fields: Dict[str, Any]) -> int:
                     created_at=now(), updated_at=now())
         s.add(p)
         s.flush()
+        from . import auth
+        user = auth.current_user.get()
+        if user:
+            s.add(auth.ProjectOwner(project_id=p.id, user_id=user["id"]))
         return p.id
 
 
@@ -193,11 +198,13 @@ def update_project(project_id: int, fields: Dict[str, Any]) -> None:
 
 
 def delete_project(project_id: int) -> None:
+    from .auth import ProjectOwner
+    from .services.submission import SubmissionState
     with get_session() as s:
         p = s.get(Project, project_id)
         if p:
             s.delete(p)
-        for model in (SourceFile, GeneratedDoc, ReviewReport, KbRule, KbCase, SourceShot):
+        for model in (SourceFile, GeneratedDoc, ReviewReport, KbRule, KbCase, SourceShot, ProjectOwner, SubmissionState):
             q = s.query(model).filter(model.project_id == project_id).all()
             for row in q:
                 s.delete(row)
@@ -241,7 +248,19 @@ def replace_source_files(project_id: int, files: List[Dict[str, Any]]) -> None:
 
 # ---------------- generated docs ----------------
 
+def input_fingerprint(project_id: int) -> str:
+    project = get_project(project_id) or {}
+    fields = {k: project.get(k) for k in PROJECT_FIELDS if k != "status"}
+    from .auth import ProjectOwner
+    with get_session() as session:
+        owner = session.get(ProjectOwner, project_id)
+        owner_id = owner.user_id if owner else None
+    payload = jdumps([owner_id, fields, get_source_contents(project_id)])
+    return hashlib.sha256(payload.encode()).hexdigest()
+
+
 def upsert_doc(project_id: int, doc_type: str, title: str, content: str, meta: Dict[str, Any]) -> int:
+    meta = {"input_fingerprint": input_fingerprint(project_id), **meta}
     with get_session() as s:
         d = (s.query(GeneratedDoc)
              .filter(GeneratedDoc.project_id == project_id, GeneratedDoc.doc_type == doc_type)

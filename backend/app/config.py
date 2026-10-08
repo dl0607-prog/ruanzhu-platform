@@ -3,8 +3,8 @@ import os
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent          # ruanzhu-platform/
-DATA_DIR = ROOT / "data"
-EXPORT_DIR = ROOT / "exports"
+DATA_DIR = Path(os.environ.get("DATA_DIR", str(ROOT / "data")))
+EXPORT_DIR = Path(os.environ.get("EXPORT_DIR", str(ROOT / "exports")))
 FRONTEND_DIR = ROOT / "frontend"
 DB_PATH = DATA_DIR / "ruanzhu.db"
 

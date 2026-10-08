@@ -5,7 +5,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from .. import database as db
-from .. import llm
+from .. import llm, auth
 from ..services import kb_service, review_engine
 
 router = APIRouter(tags=["review-kb"])
@@ -72,6 +72,9 @@ class RulePatch(BaseModel):
 async def kb_analyze(body: CaseIn):
     if not body.raw_text.strip():
         raise HTTPException(400, "请粘贴补正/驳回通知原文")
+    if body.project_id is None:
+        raise HTTPException(400, "案例必须关联项目")
+    auth.require_project(body.project_id)
     try:
         result = await kb_service.analyze_and_store(
             body.raw_text.strip(), body.source_type, body.project_id)
@@ -82,11 +85,18 @@ async def kb_analyze(body: CaseIn):
 
 @router.get("/api/kb/rules")
 def kb_rules(project_id: Optional[int] = None, enabled_only: bool = False):
-    return {"rules": db.list_rules(project_id, enabled_only)}
+    if project_id is not None:
+        auth.require_project(project_id)
+    ids = auth.owned_ids()
+    rules = [r for r in db.list_rules(project_id, enabled_only) if r["project_id"] is None or r["project_id"] in ids]
+    for r in rules:
+        r["provenance"] = db.jloads(r.get("check_config"), {})
+    return {"rules": rules}
 
 
 @router.post("/api/kb/rules")
 def kb_add_rule(body: RuleIn):
+    auth.require_admin() if body.project_id is None else auth.require_project(body.project_id)
     check_config: Dict[str, Any] = {}
     if body.check_type == "regex" and body.check_pattern:
         check_config = {"target": body.check_target, "mode": body.check_mode,
@@ -98,6 +108,12 @@ def kb_add_rule(body: RuleIn):
 
 @router.patch("/api/kb/rules/{rid}")
 def kb_patch_rule(rid: int, body: RulePatch):
+    rule = db.get_rule(rid)
+    if not rule:
+        raise HTTPException(404, "规则不存在")
+    auth.require_admin() if rule["project_id"] is None else auth.require_project(rule["project_id"])
+    if body.project_id is not None:
+        auth.require_project(body.project_id)
     fields = {k: v for k, v in body.model_dump().items() if v is not None}
     if not fields:
         raise HTTPException(400, "没有需要更新的字段")
@@ -107,10 +123,15 @@ def kb_patch_rule(rid: int, body: RulePatch):
 
 @router.delete("/api/kb/rules/{rid}")
 def kb_delete_rule(rid: int):
+    rule = db.get_rule(rid)
+    if not rule:
+        raise HTTPException(404, "规则不存在")
+    auth.require_admin() if rule["project_id"] is None else auth.require_project(rule["project_id"])
     db.delete_rule(rid)
     return {"ok": True}
 
 
 @router.get("/api/kb/cases")
 def kb_cases():
-    return {"cases": db.list_cases()}
+    ids = auth.owned_ids()
+    return {"cases": [c for c in db.list_cases(limit=10000) if c["project_id"] in ids]}

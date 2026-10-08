@@ -111,7 +111,7 @@ def run_regex_rules(rules: List[Dict[str, Any]], targets: Dict[str, str],
             if project_id is not None:
                 db.incr_rule_hit(r["id"])
             issues.append({
-                "level": "blocker" if r.get("category") == "AI声明与原创性" else "warning",
+                "level": "warning",
                 "category": r.get("category", "其他"),
                 "code": f"KB-{r['id']}",
                 "message": "知识库规则命中：" + r.get("problem", ""),

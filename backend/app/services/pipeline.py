@@ -28,6 +28,13 @@ def _require_project(project_id: int) -> Dict[str, Any]:
     return p
 
 
+def _save_generated(project_id, doc_type, title, content, meta, fingerprint):
+    if db.input_fingerprint(project_id) != fingerprint:
+        raise ValueError("生成期间项目信息或源码已变化，旧结果未覆盖材料；请重新生成")
+    return db.upsert_doc(project_id, doc_type, title, content,
+                         {**meta, "input_fingerprint": fingerprint})
+
+
 def _modules_text(analysis_meta: Dict[str, Any]) -> str:
     mods = analysis_meta.get("modules") or []
     lines = []
@@ -39,8 +46,9 @@ def _modules_text(analysis_meta: Dict[str, Any]) -> str:
 
 async def ensure_analysis(project_id: int) -> Dict[str, Any]:
     """获取或生成代码分析（模块划分等），返回 analysis doc。"""
+    fingerprint = db.input_fingerprint(project_id)
     existing = db.get_doc(project_id, "analysis")
-    if existing and (existing.get("meta") or {}).get("modules"):
+    if existing and (existing.get("meta") or {}).get("modules") and existing["meta"].get("input_fingerprint") == db.input_fingerprint(project_id):
         return existing
     project = _require_project(project_id)
     files = db.get_source_contents(project_id)
@@ -49,6 +57,7 @@ async def ensure_analysis(project_id: int) -> Dict[str, Any]:
     kb_text = await kb_service.get_kb_context(project_id)
     ctx = {"project": project, "kb_text": kb_text,
            "code_analysis": code_engine.analyze_files(files)}
+    ctx["code_samples"] = "\n\n".join(f["filename"] + "\n" + code_engine.snippet(f["content"], 80) for f in files[:15])
     msgs = prompts.code_analysis_messages(ctx)
     data = await llm.chat_json(msgs, max_tokens=3000)
     meta = {
@@ -59,7 +68,7 @@ async def ensure_analysis(project_id: int) -> Dict[str, Any]:
         "positioning": data.get("software_positioning", ""),
     }
     content = json.dumps(data, ensure_ascii=False, indent=2)
-    db.upsert_doc(project_id, "analysis", "代码结构分析", content, meta)
+    _save_generated(project_id, "analysis", "代码结构分析", content, meta, fingerprint)
     return db.get_doc(project_id, "analysis")
 
 
@@ -70,7 +79,8 @@ def _base_ctx(project_id: int, project: Dict[str, Any], analysis: Dict[str, Any]
         "project": project,
         "kb_text": kb_text,
         "modules_text": _modules_text(meta),
-        "code_analysis": None,
+        "code_analysis": code_engine.analyze_files(db.get_source_contents(project_id)),
+        "code_samples": "\n\n".join(f["filename"] + "\n" + code_engine.snippet(f["content"], 80) for f in db.get_source_contents(project_id)[:15]),
         "git_log": project.get("git_log", ""),
         "total_lines": project.get("code_lines_total", 0),
     }
@@ -78,6 +88,7 @@ def _base_ctx(project_id: int, project: Dict[str, Any], analysis: Dict[str, Any]
 
 async def stream_manual(project_id: int, doc_kind: str = "manual") -> AsyncIterator[Dict[str, Any]]:
     """逐章节生成操作说明书（doc_kind=manual）或设计说明书（doc_kind=design）。"""
+    fingerprint = db.input_fingerprint(project_id)
     project = _require_project(project_id)
     yield _event("analysis", "start", "分析源代码结构…")
     analysis = await ensure_analysis(project_id)
@@ -118,13 +129,14 @@ async def stream_manual(project_id: int, doc_kind: str = "manual") -> AsyncItera
         yield _event("chapter", "done", f"{title} 完成（{len(text)}字）",
                      {"index": i, "title": title, "words": len(text)})
     content = "\n\n".join(parts)
-    doc_id = db.upsert_doc(project_id, doc_kind, f"{project['full_name']} {label}", content,
-                           {"words": total_words, "chapters": len(chapters)})
+    doc_id = _save_generated(project_id, doc_kind, f"{project['full_name']} {label}", content,
+                           {"words": total_words, "chapters": len(chapters)}, fingerprint)
     yield _event("doc", "done", f"{label}生成完成，共 {total_words} 字",
                  {"doc_id": doc_id, "words": total_words, "doc_type": doc_kind})
 
 
 async def gen_form(project_id: int) -> Dict[str, Any]:
+    fingerprint = db.input_fingerprint(project_id)
     project = _require_project(project_id)
     analysis = await ensure_analysis(project_id)
     files = db.get_source_contents(project_id)
@@ -133,33 +145,35 @@ async def gen_form(project_id: int) -> Dict[str, Any]:
     ctx["code_analysis"] = code_engine.analyze_files(files)
     msgs = prompts.form_messages(ctx)
     data = await llm.chat_json(msgs, max_tokens=3500)
-    doc_id = db.upsert_doc(project_id, "form", "申请表预填内容",
-                           json.dumps(data, ensure_ascii=False, indent=2), {"data": data})
+    doc_id = _save_generated(project_id, "form", "申请表预填内容",
+                           json.dumps(data, ensure_ascii=False, indent=2), {"data": data}, fingerprint)
     db.update_project(project_id, {"code_lines_total": code_engine.analyze_files(files)["total_lines"]})
     return {"doc_id": doc_id, "data": data}
 
 
 async def gen_declaration(project_id: int) -> Dict[str, Any]:
+    fingerprint = db.input_fingerprint(project_id)
     project = _require_project(project_id)
     analysis = await ensure_analysis(project_id)
     kb_text = await kb_service.get_kb_context(project_id)
     ctx = _base_ctx(project_id, project, analysis, kb_text)
     msgs = prompts.declaration_messages(ctx)
     data = await llm.chat_json(msgs, max_tokens=2500)
-    doc_id = db.upsert_doc(project_id, "declaration", "AI使用情况声明及人类实质性创作说明",
-                           json.dumps(data, ensure_ascii=False, indent=2), {"data": data})
+    doc_id = _save_generated(project_id, "declaration", "AI使用情况声明及人类实质性创作说明",
+                           json.dumps(data, ensure_ascii=False, indent=2), {"data": data}, fingerprint)
     return {"doc_id": doc_id, "data": data}
 
 
 async def gen_evidence(project_id: int) -> Dict[str, Any]:
+    fingerprint = db.input_fingerprint(project_id)
     project = _require_project(project_id)
     analysis = await ensure_analysis(project_id)
     kb_text = await kb_service.get_kb_context(project_id)
     ctx = _base_ctx(project_id, project, analysis, kb_text)
     msgs = prompts.evidence_messages(ctx)
     text = await llm.chat(msgs, max_tokens=3000)
-    doc_id = db.upsert_doc(project_id, "evidence", "软件开发过程记录", text.strip(),
-                           {"words": len(text)})
+    doc_id = _save_generated(project_id, "evidence", "软件开发过程记录", text.strip(),
+                           {"words": len(text)}, fingerprint)
     return {"doc_id": doc_id, "words": len(text)}
 
 
@@ -219,5 +233,5 @@ async def stream_all(project_id: int, doc_kind: str = "manual") -> AsyncIterator
     yield _event("export", "start", "导出全套 docx 与打包…")
     out = exporter.export_all(project_id)
     yield _event("export", "done", f"已导出 {len(out['files'])} 个文件", out)
-    yield _event("pipeline", "done", "全套材料已就绪，可在“导出下载”页获取",
+    yield _event("pipeline", "done", "材料草稿已导出，请处理预检问题并完成人工核对",
                  {"passed": report["passed"], **out})

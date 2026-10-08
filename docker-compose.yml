@@ -1,11 +1,18 @@
 services:
   ruanzhu:
     build: .
-    container_name: ruanzhu-platform
     ports:
-      - "8310:8310"
+      - "127.0.0.1:8310:8310"
+    env_file: .env
     volumes:
-      - ./data:/app/data          # SQLite 数据库持久化
-      - ./exports:/app/exports    # 导出的 docx / zip 材料
-      - ./.env:/app/.env:ro       # LLM 配置（不存在时可先 cp .env.example .env）
+      - ruanzhu_data:/app/data
+      - ruanzhu_exports:/app/exports
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8310/api/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+volumes:
+  ruanzhu_data:
+  ruanzhu_exports:
