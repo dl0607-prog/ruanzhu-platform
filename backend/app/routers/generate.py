@@ -105,12 +105,27 @@ def delete_doc(pid: int, doc_type: str):
 
 @router.put("/{pid}/docs/{doc_type}")
 def update_doc(pid: int, doc_type: str, body: DocUpdate):
-    """人工编辑材料正文（AI 辅助 + 人类实质性修改，是 2026 新规下的必要动作）。"""
+    """人工录入或修订材料；结构化字段同步到导出数据。"""
+    if not db.get_project(pid):
+        raise HTTPException(404, "项目不存在")
     if doc_type not in DOC_TYPES:
         raise HTTPException(400, "未知的材料类型")
     if not body.content.strip():
         raise HTTPException(400, "内容不能为空")
-    ok = db.update_doc(pid, doc_type, body.content, body.title)
-    if not ok:
-        raise HTTPException(404, "文档尚未生成")
+    existing = db.get_doc(pid, doc_type) or {}
+    meta = existing.get('meta') or {}
+    if doc_type in ('analysis', 'form', 'declaration'):
+        try:
+            data = json.loads(body.content)
+            if not isinstance(data, dict):
+                raise ValueError()
+        except (ValueError, TypeError):
+            raise HTTPException(400, "该材料需要 JSON 对象，请保留字段名并修改值")
+        if doc_type == 'form' and any(not isinstance(value, str) for value in data.values()):
+            raise HTTPException(400, '申请表字段必须填写文本')
+        meta['data'] = data
+        if doc_type == 'analysis':
+            meta.update(data)
+    meta['manually_edited'] = True
+    db.upsert_doc(pid, doc_type, body.title or existing.get('title') or pipeline.DOC_LABELS[doc_type], body.content, meta)
     return {"ok": True}

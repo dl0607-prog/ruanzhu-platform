@@ -5,6 +5,8 @@
 """
 import uuid
 from pathlib import Path
+from docx.image.image import Image
+from docx.image.exceptions import UnrecognizedImageError, UnexpectedEndOfFileError
 
 from fastapi import APIRouter, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
@@ -14,7 +16,7 @@ from ..services import exporter
 
 router = APIRouter(prefix="/api/projects", tags=["shots"])
 
-ALLOWED_EXT = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}
+ALLOWED_EXT = {".png", ".jpg", ".jpeg", ".gif", ".bmp"}
 MAX_SIZE = 5 * 1024 * 1024
 
 
@@ -24,12 +26,18 @@ async def upload_shot(pid: int, file: UploadFile, label: str = Form("")):
         raise HTTPException(404, "项目不存在")
     ext = Path(file.filename or "").suffix.lower()
     if ext not in ALLOWED_EXT:
-        raise HTTPException(400, "仅支持图片文件（png/jpg/webp/gif/bmp）")
-    data = await file.read()
+        raise HTTPException(400, "仅支持图片文件（png/jpg/gif/bmp）")
+    data = await file.read(MAX_SIZE + 1)
     if not data:
         raise HTTPException(400, "空文件")
     if len(data) > MAX_SIZE:
         raise HTTPException(400, "图片不能超过 5MB")
+    try:
+        parsed = Image.from_blob(data)
+        if parsed.px_width * parsed.px_height > 25_000_000:
+            raise HTTPException(400, "图片尺寸过大，请缩小后上传")
+    except (UnrecognizedImageError, UnexpectedEndOfFileError, ValueError, KeyError, TypeError):
+        raise HTTPException(400, "图片内容无效，请上传可读取的 PNG/JPEG/GIF/BMP")
     name = (label or Path(file.filename or "").stem).strip()[:100] or "界面截图"
     fname = uuid.uuid4().hex + ext
     (exporter.shots_dir(pid) / fname).write_bytes(data)

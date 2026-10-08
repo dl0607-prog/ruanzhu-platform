@@ -44,7 +44,7 @@ def export_source(project_id: int) -> Dict[str, Any]:
     if not files:
         raise ValueError("请先导入源代码")
     pages_info = code_engine.build_pages(files)
-    path = _project_dir(project_id) / f"源程序-{_safe_name(project['full_name'])}-{project['version']}.docx"
+    path = _project_dir(project_id) / f"源程序-{_safe_name(project['full_name'])}-{_safe_name(project['version'])}.docx"
     docx_engine.export_source_docx(project, pages_info["pages"], path)
     return {"path": path.name, "pages": pages_info["pages_submitted"],
             "total_lines": pages_info["total_lines"], "mode": pages_info["mode"]}
@@ -59,7 +59,7 @@ def export_manual(project_id: int) -> Dict[str, Any]:
         kind, label = ("design", "设计说明书")
     if not doc:
         raise ValueError("请先生成操作说明书或设计说明书")
-    path = _project_dir(project_id) / f"{label}-{_safe_name(project['full_name'])}-{project['version']}.docx"
+    path = _project_dir(project_id) / f"{label}-{_safe_name(project['full_name'])}-{_safe_name(project['version'])}.docx"
     docx_engine.export_markdown_docx(project, doc["content"], path, label,
                                      shots=project_shots(project_id))
     return {"path": path.name, "doc_type": kind, "words": (doc.get("meta") or {}).get("words", 0),
@@ -73,7 +73,7 @@ def export_form(project_id: int) -> Dict[str, Any]:
         raise ValueError("请先生成申请表预填内容")
     declaration = db.get_doc(project_id, "declaration")
     decl_data = (declaration or {}).get("meta", {}).get("data") if declaration else None
-    path = _project_dir(project_id) / f"申请表预填-{_safe_name(project['full_name'])}-{project['version']}.docx"
+    path = _project_dir(project_id) / f"申请表预填-{_safe_name(project['full_name'])}-{_safe_name(project['version'])}.docx"
     docx_engine.export_form_docx(project, (form.get("meta") or {}).get("data", {}), decl_data, path)
     return {"path": path.name}
 
@@ -83,7 +83,7 @@ def export_evidence(project_id: int) -> Dict[str, Any]:
     doc = db.get_doc(project_id, "evidence")
     if not doc:
         raise ValueError("请先生成开发过程记录")
-    path = _project_dir(project_id) / f"开发过程记录-{_safe_name(project['full_name'])}-{project['version']}.docx"
+    path = _project_dir(project_id) / f"开发过程记录-{_safe_name(project['full_name'])}-{_safe_name(project['version'])}.docx"
     docx_engine.export_markdown_docx(project, doc["content"], path, "开发过程记录",
                                      shots=project_shots(project_id))
     return {"path": path.name}
@@ -114,10 +114,17 @@ def export_all(project_id: int) -> Dict[str, Any]:
         has_declaration=bool(declaration),
         has_evidence="evidence" in results and "path" in results["evidence"],
     )
+    from . import submission
+    status = submission.state(project_id)
+    checklist += "\n\n人工核对（材料变更后需重新确认）：\n"
+    for key, label in submission.CHECKS.items():
+        checklist += ("[已确认] " if status.get('checks', {}).get(key) else "[待核对] ") + label + "\n"
+    if status.get('correction_due'):
+        checklist += "补正指定期限：" + status['correction_due'] + "\n"
     checklist_path = out_dir / "材料清单与提交检查.txt"
     checklist_path.write_text(checklist, encoding="utf-8")
     files.append(checklist_path.name)
-    zip_path = out_dir / f"软著申请材料包-{_safe_name(project['full_name'])}-{project['version']}.zip"
+    zip_path = out_dir / f"软著申请材料包-{_safe_name(project['full_name'])}-{_safe_name(project['version'])}.zip"
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
         for name in files:
             p = out_dir / name

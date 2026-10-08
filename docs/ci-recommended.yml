@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 安装依赖
+        run: pip install -r backend/requirements.txt pytest
+
+      - name: 单元测试（引擎 / 审查 / 知识库规则）
+        run: cd backend && python -m pytest tests/ -q
+
+      - name: 启动冒烟（健康检查 + 首页）
+        env:
+          ADMIN_PASSWORD: ci-test-password-only
+          COOKIE_SECURE: "false"
+        run: |
+          cd backend
+          nohup python -m uvicorn app.main:app --port 8310 &
+          for i in $(seq 1 15); do
+            curl -sf http://127.0.0.1:8310/api/health > /dev/null && break
+            sleep 1
+          done
+          curl -sf http://127.0.0.1:8310/api/health | grep -o '"ok"[[:space:]]*:[[:space:]]*true'
+          curl -sf http://127.0.0.1:8310/ | grep -o '软著工场'
+
+  docker-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 构建完整应用镜像
+        run: docker build -t ruanzhu-ci .
+      - name: 验证镜像内后端与前端可用
+        run: |
+          docker run -d --name ruanzhu-smoke -p 127.0.0.1:8310:8310 -e ADMIN_PASSWORD=ci-test-password-only -e COOKIE_SECURE=false ruanzhu-ci
+          for i in $(seq 1 30); do
+            curl -sf http://127.0.0.1:8310/api/health > /dev/null && break
+            sleep 1
+          done
+          curl -sf http://127.0.0.1:8310/api/health
+          curl -sf http://127.0.0.1:8310/ | grep -q '软著工场'
+          curl -sf http://127.0.0.1:8310/static/auth.js | grep -q 'requireLogin'
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8310/api/projects)" = 401
+      - name: 失败时查看日志
+        if: failure()
+        run: docker logs ruanzhu-smoke

@@ -635,7 +635,7 @@ html[data-theme="dark"] .toast.err { background: #42232a; }
       <button class="nav-add" id="btn-new-side"><span class="ico" data-icon="plus"></span>新建申请</button>
     </nav>
     <div class="sidebar-foot">
-      <div class="foot-pill"><span class="dot"></span>审查口径：2026-03-15 新版申请表</div>
+      <div class="foot-pill"><span class="dot"></span>来源可追溯 · 官方要求与经验分开</div>
       <div class="foot-links">
         <a href="https://www.ccopyright.com.cn" target="_blank" rel="noopener">中国版权保护中心 ↗</a>
       </div>
@@ -645,7 +645,7 @@ html[data-theme="dark"] .toast.err { background: #42232a; }
     <header class="topbar">
       <div class="topbar-title">
         <h1 id="page-title">项目总览</h1>
-        <div class="crumb" id="page-crumb">一站式生成能通过审查的软著申请材料</div>
+        <div class="crumb" id="page-crumb">准备真实材料 · 核对申请问题 · 跟进补正</div>
       </div>
       <div class="topbar-actions">
         <span id="llm-badge"></span>
@@ -659,7 +659,69 @@ html[data-theme="dark"] .toast.err { background: #42232a; }
   </div>
 </div>
 <div class="toast" id="toast"></div>
-<script>
+
+  <script>
+/* Server-managed account sessions; no credentials stored in localStorage. */
+async function requireLogin() {
+  let user = await fetch('/api/auth/me').then(r => r.ok ? r.json() : null);
+  if (!user) {
+    await new Promise(resolve => {
+      const overlay = document.createElement('div');
+      overlay.className = 'modal-mask';
+      overlay.style.zIndex = '9999';
+      overlay.innerHTML = `<form class="modal" style="max-width:440px"><div class="modal-head"><h3>登录软著工场</h3></div><div class="modal-body"><p>每个账号独立管理项目和申请材料。账号由管理员创建。</p><div class="field"><label>账号</label><input name="username" autocomplete="username" required maxlength="80"></div><div class="field"><label>密码</label><input name="password" type="password" autocomplete="current-password" required maxlength="256"></div><p class="login-error" role="alert"></p><button class="btn btn-primary" type="submit">登录</button></div></form>`;
+      document.body.appendChild(overlay);
+      overlay.querySelector('form').onsubmit = async e => {
+        e.preventDefault();
+        const button = overlay.querySelector('button');
+        button.disabled = true;
+        try {
+          const form = new FormData(e.target);
+          const response = await fetch('/api/auth/login', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(Object.fromEntries(form))});
+          if (!response.ok) {
+            const error = await response.json();
+            throw new Error(typeof error.detail === 'string' ? error.detail : '请检查账号及密码，密码至少12位');
+          }
+          user = await fetch('/api/auth/me').then(r => r.ok ? r.json() : null);
+          if (!user) throw new Error('会话未生效：服务器需使用 HTTPS；本机测试请设置 COOKIE_SECURE=false');
+          overlay.remove(); resolve();
+        } catch (error) { overlay.querySelector('.login-error').textContent = error.message; }
+        finally { button.disabled = false; }
+      };
+    });
+  }
+  window.sessionUser = user;
+  const bar = document.createElement('div');
+  bar.className = 'row';
+  bar.style.padding = '10px';
+  const name = document.createElement('span'); name.textContent = user.username;
+  const logout = document.createElement('button'); logout.className = 'btn btn-ghost btn-sm'; logout.textContent = '退出登录';
+  logout.onclick = async () => { await fetch('/api/auth/logout', {method:'POST'}); location.reload(); };
+  bar.append(name, logout);
+  if (user.admin) {
+    const add = document.createElement('button'); add.className = 'btn btn-ghost btn-sm'; add.textContent = '创建账号';
+    add.onclick = () => {
+      const modal = document.createElement('div'); modal.className = 'modal-mask';
+      modal.innerHTML = `<form class="modal" style="max-width:440px"><div class="modal-body"><h3>创建成员账号</h3><div class="field"><label>账号（字母、数字、_.@-）</label><input name="username" required pattern="[A-Za-z0-9_.@-]+" maxlength="80"></div><div class="field"><label>初始密码（至少12位）</label><input name="password" type="password" required minlength="12" maxlength="256" autocomplete="new-password"></div><p role="alert"></p><button class="btn btn-primary">创建</button> <button type="button" class="btn close-account">取消</button></div></form>`;
+      modal.querySelector('.close-account').onclick = () => modal.remove();
+      modal.querySelector('form').onsubmit = async e => {
+        e.preventDefault();
+        const button = e.target.querySelector('button'); button.disabled = true;
+        try {
+          const res = await fetch('/api/auth/users', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(Object.fromEntries(new FormData(e.target)))});
+          const data = await res.json();
+          if (!res.ok) throw new Error(typeof data.detail === 'string' ? data.detail : '字段格式不正确');
+          modal.remove(); toast('账号已创建');
+        } catch (error) { modal.querySelector('[role="alert"]').textContent = error.message; }
+        finally { button.disabled = false; }
+      };
+      document.body.appendChild(modal);
+    };
+    bar.append(add);
+  }
+  (document.querySelector('.sidebar') || document.body).appendChild(bar);
+}
+
 /* 软著工场 - 前端工作台（原生 JS，无构建依赖） */
 const API = location.origin;
 const $ = (sel, root) => (root || document).querySelector(sel);
@@ -725,12 +787,12 @@ const DOC_META = {
 };
 
 const TABS = [
-  ["info", "基本信息", "listcheck"],
-  ["code", "源代码", "filecode"],
-  ["gen", "材料生成", "sparkles"],
-  ["review", "合规审查", "shield"],
-  ["kb", "驳回知识库", "refresh"],
-  ["export", "导出下载", "download"],
+  ["info", "申请信息", "listcheck"],
+  ["code", "上传代码", "filecode"],
+  ["gen", "准备材料", "sparkles"],
+  ["review", "检查问题", "shield"],
+  ["kb", "经验库", "refresh"],
+  ["export", "下载材料", "download"],
 ];
 
 /* 申请状态流转（"批发"管理多件申请） */
@@ -825,7 +887,12 @@ function md2html(md) {
 
 /* ---------------- SSE 读取 ---------------- */
 async function consumeSSE(res, onEvent) {
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({}));
+    throw new Error(error.detail || '生成请求失败');
+  }
   const reader = res.body.getReader();
+  let completed = false;
   const decoder = new TextDecoder();
   let buf = "";
   while (true) {
@@ -836,10 +903,14 @@ async function consumeSSE(res, onEvent) {
     while ((idx = buf.indexOf("\n\n")) >= 0) {
       const chunk = buf.slice(0, idx); buf = buf.slice(idx + 2);
       if (chunk.startsWith("data: ")) {
-        try { onEvent(JSON.parse(chunk.slice(6))); } catch (e) {}
+        const event = JSON.parse(chunk.slice(6));
+        onEvent(event);
+        if (event.status === 'error') throw new Error(event.message || '生成失败');
+        if (event.step === 'pipeline' && event.status === 'done') completed = true;
       }
     }
   }
+  if (!completed) throw new Error("生成连接提前结束，请检查已保存材料后重试");
 }
 
 /* ---------------- 侧边栏与路由 ---------------- */
@@ -927,8 +998,8 @@ async function showDashboard() {
   const docsDone = p => Object.keys(p.docs || {}).length;
   $("#main-area").innerHTML = `
     <div class="hero">
-      <h2>把 AI 写的代码，变成能通过审查的软著申请</h2>
-      <p>导入源代码后自动生成全套材料：源程序鉴别材料（每页50行 · 前30后30截取）、操作/设计说明书、申请表预填（功能描述≥500字）、AI 声明与开发过程记录；内置 2026-03-15 新规合规预检，被打回还能把问题沉淀进知识库，下次自动规避。</p>
+      <h2>把真实软件，整理成完整的申请材料</h2>
+      <p>导入源代码后自动生成全套材料：源程序鉴别材料（每页50行 · 前30后30截取）、操作/设计说明书、申请表预填、AI 声明与开发过程记录；内置有来源的申请预检，被打回还能把问题沉淀进知识库，下次自动规避。</p>
       <div class="hero-actions">
         <button class="btn-hero" id="btn-hero-new">${icon("plus", 15)} 新建软著申请</button>
         <button class="btn-hero ghost" id="btn-hero-how">${icon("arrow", 15)} 了解工作流程</button>
@@ -944,7 +1015,7 @@ async function showDashboard() {
       <div class="step-card"><div class="s-head"><span class="s-no">1</span><span class="s-title">${icon("filecode", 15)} 导入代码</span></div>
         <div class="s-desc">粘贴或上传（zip）AI 项目的源码，自动剔除依赖目录、去空行、按每页 50 行排版。</div></div>
       <div class="step-card"><div class="s-head"><span class="s-no">2</span><span class="s-title">${icon("sparkles", 15)} AI 生成全套</span></div>
-        <div class="s-desc">分析代码模块，逐章节生成说明书、申请表（功能≥500字）、AI 声明、开发过程记录。</div></div>
+        <div class="s-desc">分析代码模块，逐章节生成说明书、申请表参考字段、AI 声明、开发过程记录。</div></div>
       <div class="step-card"><div class="s-head"><span class="s-no">3</span><span class="s-title">${icon("shield", 15)} 提交前预检</span></div>
         <div class="s-desc">三重一致性、名称版本格式、AI 痕迹词、材料齐备等硬校验，blocker 清零再提交。</div></div>
       <div class="step-card"><div class="s-head"><span class="s-no">4</span><span class="s-title">${icon("refresh", 15)} 驳回回流</span></div>
@@ -1080,7 +1151,7 @@ function openProjectModal(p) {
     <div class="modal-head"><h3>${p ? "编辑项目信息" : "新建软著申请"}</h3><button class="modal-close">${icon("x")}</button></div>
     <div class="modal-body">
       <div class="form-grid">
-        <div class="field full"><label><b>*</b>软件全称（建议以 系统/软件/平台 结尾，禁用"中国/国家"等词）</label>
+        <div class="field full"><label><b>*</b>软件名称（各份材料保持一致）</label>
           <input id="f-full" placeholder="如：企业数据智能同步系统" value="${esc(p ? p.full_name : "")}">
           ${chipsField("f-full", ["库存管理系统", "订单管理软件", "数据分析平台", "文件同步工具"])}</div>
         <div class="field"><label>软件简称（可选）</label><input id="f-short" value="${esc(p ? p.short_name : "")}"></div>
@@ -1094,11 +1165,11 @@ function openProjectModal(p) {
         <div class="field"><label>主体类型</label><select id="f-otype">
           <option ${p && p.owner_type === "企业" ? "selected" : ""}>企业</option>
           <option ${!p || p.owner_type === "个人" ? "selected" : ""}>个人</option></select></div>
-        <div class="field"><label>AI 使用情况（决定 AI 声明口径）</label><select id="f-ai">
-          <option value="ai_assisted" ${!p || p.ai_usage === "ai_assisted" ? "selected" : ""}>AI 辅助开发 + 人工实质性修改（推荐口径）</option>
+        <div class="field"><label>AI 使用情况（按真实情况填写）</label><select id="f-ai">
+          <option value="unknown" ${!p || p.ai_usage === "unknown" ? "selected" : ""}>待核实</option><option value="no_ai" ${p && p.ai_usage === "no_ai" ? "selected" : ""}>未使用 AI</option><option value="ai_assisted" ${p && p.ai_usage === "ai_assisted" ? "selected" : ""}>AI 辅助开发，已确认人工修改</option>
           <option value="ai_heavy" ${p && p.ai_usage === "ai_heavy" ? "selected" : ""}>AI 参与较多，人工做了核心设计与重构</option></select></div>
         <div class="field"><label>技术栈（可选）</label><input id="f-tech" placeholder="如：Python FastAPI + Vue3" value="${esc(p ? p.tech_stack : "")}"></div>
-        <div class="field full"><label>主要功能描述（给 AI 的功能说明，越具体生成质量越高）</label>
+        <div class="field full"><label>主要功能（用自己的话描述软件做什么）</label>
           <textarea id="f-func" placeholder="例如：这是一个把电商订单从多个平台同步到本地 ERP 的工具，包含订单拉取、字段映射、冲突处理、日志报表四个模块…">${esc(p ? p.main_functions : "")}</textarea>
           ${chipsField("f-func", [
             {label: "示例：电商订单同步", value: "这是一个把电商订单从多个平台同步到本地 ERP 的工具，包含订单拉取、字段映射、冲突处理、日志报表四个模块"},
@@ -1176,11 +1247,17 @@ function bindProjectEvents(p) {
     const fd = new FormData();
     for (const f of fs) fd.append("files", f);
     toast("正在解析上传…");
-    const res = await fetch(`${API}/api/projects/${p.id}/code/upload`, { method: "POST", body: fd });
-    const data = await res.json();
-    if (!res.ok) return toast(data.detail || "上传失败", true);
-    toast(`已导入 ${data.files_stored} 个文件，共 ${data.total_lines} 行 → 将生成 ${data.pages_submitted} 页源代码文档`);
-    refreshProjects().then(() => { state.tab = "code"; loadProjectView(); });
+    const input = e.target;
+    input.disabled = true;
+    try {
+      const res = await fetch(`${API}/api/projects/${p.id}/code/upload`, { method: "POST", body: fd });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "上传失败");
+      toast(`已导入 ${data.files_stored} 个文件，共 ${data.total_lines} 行 → 将生成 ${data.pages_submitted} 页源代码文档`);
+      await refreshProjects();
+      if (state.currentId === p.id) { state.tab = "code"; await loadProjectView(); }
+    } catch (e) { toast(e.message || "上传失败，请检查连接后重试", true); }
+    finally { input.disabled = false; input.value = ""; }
   };
 }
 
@@ -1205,14 +1282,18 @@ function tabInfo(p, body) {
       <div class="field"><label>技术栈</label><input id="e-tech" value="${esc(p.tech_stack)}"></div>
       <div class="field full"><label>主要功能描述</label><textarea id="e-func">${esc(p.main_functions)}</textarea></div>
       <div class="field full"><label>AI 使用情况</label><select id="e-ai">
-        <option value="ai_assisted" ${p.ai_usage === "ai_assisted" ? "selected" : ""}>AI 辅助开发 + 人工实质性修改</option>
+        <option value="unknown" ${p.ai_usage === "unknown" ? "selected" : ""}>待核实</option><option value="no_ai" ${p.ai_usage === "no_ai" ? "selected" : ""}>未使用 AI</option><option value="ai_assisted" ${p.ai_usage === "ai_assisted" ? "selected" : ""}>AI 辅助开发 + 人工实质性修改</option>
         <option value="ai_heavy" ${p.ai_usage === "ai_heavy" ? "selected" : ""}>AI 参与较多，人工核心设计重构</option></select></div>
       <div class="field full"><label>Git 提交记录（过程证据）</label><textarea id="e-git" style="min-height:80px;">${esc(p.git_log)}</textarea></div>
     </div>
     <div class="row mt" style="justify-content:flex-end;"><button class="btn btn-primary" id="e-save">保存</button>
-    <button class="btn btn-ghost" id="e-edit2">在弹窗中完善</button></div>
+</div>
   </div>`;
   $("#e-save").onclick = async () => {
+    const btn = $("#e-save", body);
+    if (!$("#e-full", body).value.trim()) return toast("软件全称不能为空", true);
+    btn.disabled = true;
+    try {
     await api("/api/projects/" + p.id, { method: "PUT", body: {
       full_name: $("#e-full").value.trim(), short_name: $("#e-short").value.trim(),
       version: $("#e-ver").value.trim(), completion_date: $("#e-comp").value,
@@ -1220,9 +1301,11 @@ function tabInfo(p, body) {
       owner_name: $("#e-owner").value.trim(), main_functions: $("#e-func").value.trim(),
       tech_stack: $("#e-tech").value.trim(), ai_usage: $("#e-ai").value, git_log: $("#e-git").value.trim(),
     }});
-    toast("已保存"); refreshProjects().then(loadProjectView);
+    toast("已保存"); await refreshProjects();
+    if (state.currentId === p.id) await loadProjectView();
+    } catch (e) { toast(e.message, true); }
+    finally { btn.disabled = false; }
   };
-  $("#e-edit2").onclick = () => openProjectModal(p);
   initDatePicker(body);
   initChips(body);
 }
@@ -1232,7 +1315,7 @@ async function tabCode(p, body) {
   body.innerHTML = `
   <div class="card">
     <h3>${icon("upload", 16)} 导入源代码 <span class="hint">粘贴或上传 AI 生成的项目源码（支持多文件 / zip 包）</span></h3>
-    <div class="field"><textarea id="paste-code" style="min-height:170px;font-family:var(--font-mono);font-size:12px;" placeholder="把源代码粘贴到这里（会作为一个文件导入；多文件建议打包 zip 上传）"></textarea></div>
+    <p class="muted">推荐上传项目的 ZIP 压缩包。下面也可以直接粘贴代码。</p><div class="field"><textarea id="paste-code" style="min-height:170px;font-family:var(--font-mono);font-size:12px;" placeholder="把源代码粘贴到这里（会作为一个文件导入；多文件建议打包 zip 上传）"></textarea></div>
     <div class="row mt">
       <button class="btn btn-primary" id="btn-paste">${icon("code", 15)} 导入粘贴的代码</button>
       <button class="btn btn-ghost" id="btn-upload">${icon("upload", 15)} 上传文件 / zip 包</button>
@@ -1261,7 +1344,7 @@ async function tabCode(p, body) {
       <div class="stat"><div class="stat-ico orange">${icon("layers", 19)}</div><div><div class="num" style="font-size:17px;padding-top:3px;">${st.mode === "all" ? "全部提交" : "前30+后30"}</div><div class="lbl">截取方式</div></div></div>
       <div class="stat"><div class="stat-ico ${st.last_line_ok ? "green" : "orange"}">${icon(st.last_line_ok ? "check" : "alert", 19)}</div><div><div class="num" style="font-size:17px;padding-top:3px;">${st.last_line_ok ? "通过" : "待确认"}</div><div class="lbl">末页结束符检查</div></div></div>
     </div>
-    ${st.total_lines < 3000 ? `<div class="issue warning"><span class="lv">建议</span><div><div class="msg">源代码 ${st.total_lines} 行，少于 3000 行</div><div class="fix">2026 审查口径建议自研核心代码不少于 3000 行，可补充核心功能模块的实现代码。</div></div></div>` : ""}
+    ${st.total_lines < 3000 ? `<div class="issue warning"><span class="lv">建议</span><div><div class="msg">源代码 ${st.total_lines} 行，按真实代码提交</div><div class="fix">不足60页可提交全部源码，不存在已核实的3000行最低门槛；请确保导入完整的真实代码。</div></div></div>` : ""}
     <div class="table-wrap"><table class="table"><thead><tr><th>文件</th><th style="width:120px;">行数</th></tr></thead><tbody>
       ${(st.files || []).map(f => `<tr><td>${esc(f.filename)}</td><td>${f.lines}</td></tr>`).join("")}
     </tbody></table></div>`;
@@ -1285,12 +1368,12 @@ function tabGen(p, body) {
     </div>
     <div class="row mt">
       <button class="btn btn-primary btn-big" id="btn-all">${icon("sparkles", 16)} 开始一键生成</button>
-      <span class="muted">全程需要已配置 LLM；逐章节生成约需数分钟，可随时关闭页面</span>
+      <span class="muted">全程需要已配置 LLM；逐章节生成约需数分钟，生成期间请保持页面打开</span>
     </div>
     <div class="progress-panel mt" id="prog" style="display:none;"></div>
   </div>
   <div class="grid-2">
-    <div class="card">
+    <details class="card"><summary>其他辅助材料（可选）</summary>
       <h3>${icon("code", 16)} 单项生成</h3>
       <div class="row">
         <button class="btn btn-ghost" data-gen="analysis">${icon("refresh", 14)} 重新分析代码</button>
@@ -1298,13 +1381,13 @@ function tabGen(p, body) {
         <button class="btn btn-ghost" data-gen="declaration">${icon("bot", 14)} AI 声明</button>
         <button class="btn btn-ghost" data-gen="evidence">${icon("archive", 14)} 过程记录</button>
       </div>
-      <div class="muted mt">单项生成也会自动注入知识库规避规则；说明书走上方一键流程（含代码分析）。</div>
-    </div>
+      <div class="muted mt">这些是辅助草稿，不代替真实证明。说明书请使用上方生成或自己填写。</div>
+    </details>
     <div class="card">
-      <h3>${icon("filetext", 16)} 已生成材料（${docs.length}/6）<span class="hint">生成后可直接编辑，人工修改是合规加分项</span></h3>
+      <h3>${icon("filetext", 16)} 已保存材料（${docs.length} 类）<span class="hint">生成后可直接编辑，请核对实际功能与材料一致</span></h3>
       ${docs.length ? docs.map(d => {
         const meta = DOC_META[d.doc_type] || { name: d.doc_type, ico: "filetext" };
-        const editable = ["manual", "design", "evidence"].includes(d.doc_type);
+        const editable = true;
         return `
         <div class="doc-item">
           <div><div class="t">${icon(meta.ico, 17)} ${esc(d.title || meta.name)}</div>
@@ -1323,10 +1406,15 @@ function tabGen(p, body) {
     <div class="row mt">
       <input id="shot-label" class="inline-input" style="flex:1;min-width:240px;" placeholder="界面名称，如：订单列表页（与截图占位名称一致即可自动匹配）">
       <button class="btn btn-primary btn-sm" id="btn-shot-upload">${icon("upload", 14)} 上传截图</button>
-      <input type="file" id="shot-file" accept="image/png,image/jpeg,image/webp,image/gif,image/bmp" style="display:none;">
+      <input type="file" id="shot-file" accept="image/png,image/jpeg,image/gif,image/bmp" style="display:none;">
     </div>
     <div id="shot-list" class="row mt" style="gap:14px;"></div>
   </div>`;
+  const entry = document.createElement("div");
+  entry.className = "card";
+  entry.innerHTML = `<h3>自己填写材料</h3><p class="muted">没有AI也可以使用：选择材料，填写或粘贴真实内容后保存。</p><div class="row"><select id="manual-kind" class="btn">${Object.entries(DOC_META).filter(([k]) => ['manual','design','form'].includes(k)).map(([k,v]) => `<option value="${k}">${v.name}</option>`).join('')}</select><button id="manual-entry" class="btn btn-primary">录入 / 编辑</button></div>`;
+  body.prepend(entry);
+  $("#manual-entry", entry).onclick = () => editDoc(p.id, $("#manual-kind", entry).value);
   loadShots(p);
   $$("#doc-kind-cards .radio-card").forEach(c => c.onclick = () =>
     $$("#doc-kind-cards .radio-card").forEach(x => x.classList.toggle("active", x === c)));
@@ -1422,7 +1510,14 @@ async function loadShots(p) {
 /* ---- 材料在线编辑（AI 生成后人工修改，可重新导出） ---- */
 async function editDoc(pid, docType) {
   try {
-    const d = await api(`/api/projects/${pid}/docs/${docType}`);
+    let d;
+    try { d = await api(`/api/projects/${pid}/docs/${docType}`); }
+    catch (e) {
+      if (!String(e.message).includes("文档尚未生成")) throw e;
+      const project = docType === "form" ? await api(`/api/projects/${pid}`) : null;
+      const template = docType === "form" ? {development_purpose:"",main_functions_desc:project.main_functions || "",technical_features:"",target_users:"",hardware_env:"",software_env:"",programming_language:"",source_lines_note:(project.code_lines_total || 0) + "行"} : docType === "declaration" ? {ai_usage_summary:"",human_contribution:"",originality_statement:"",evidence_list:[]} : null;
+      d = {content: template ? JSON.stringify(template, null, 2) : "", title: DOC_META[docType].name};
+    }
     const m = document.createElement("div");
     m.className = "modal-mask";
     m.innerHTML = `<div class="modal" style="width:880px;">
@@ -1441,25 +1536,39 @@ async function editDoc(pid, docType) {
         </div>
       </div></div>`;
     document.body.appendChild(m);
+    const formFields = {development_purpose:'开发目的',main_functions_desc:'主要功能',technical_features:'技术特点',target_users:'使用对象',hardware_env:'硬件环境',software_env:'软件环境',programming_language:'编程语言',source_lines_note:'源程序量'};
+    if (docType === 'form') {
+      const data = JSON.parse(d.content || '{}');
+      const fields = document.createElement('div'); fields.id = 'ed-fields'; fields.className = 'form-grid';
+      fields.innerHTML = Object.entries(formFields).map(([key,label]) => `<div class="field full"><label>${label}</label><textarea data-form-field="${key}">${esc(data[key] || '')}</textarea></div>`).join('');
+      $('#ed-content', m).style.display = 'none';
+      $('#ed-content', m).before(fields);
+      $('#ed-source', m).textContent = '返回表单';
+    }
+    const editedContent = () => docType === 'form' ? JSON.stringify(Object.fromEntries($$('[data-form-field]', m).map(el => [el.dataset.formField, el.value.trim()])), null, 2) : $('#ed-content', m).value;
     $(".modal-close", m).onclick = () => m.remove();
     m.onclick = e => { if (e.target === m) m.remove(); };
     $("#ed-preview", m).onclick = () => {
       $("#ed-content", m).style.display = "none";
       const box = $("#ed-preview-box", m);
-      box.innerHTML = md2html($("#ed-content", m).value);
+      const fields = $("#ed-fields", m); if (fields) fields.style.display = "none";
+      box.innerHTML = docType === "form" ? Object.entries(JSON.parse(editedContent())).map(([key,value]) => `<h3>${formFields[key] || esc(key)}</h3><p>${esc(value)}</p>`).join("") : md2html(editedContent());
       box.style.display = "block";
     };
     $("#ed-source", m).onclick = () => {
       $("#ed-preview-box", m).style.display = "none";
-      $("#ed-content", m).style.display = "block";
+      if (docType === "form") $("#ed-fields", m).style.display = "grid";
+      else $("#ed-content", m).style.display = "block";
     };
     $("#ed-save", m).onclick = async () => {
+      const save = $("#ed-save", m); save.disabled = true;
       try {
-        await api(`/api/projects/${pid}/docs/${docType}`, { method: "PUT", body: { content: $("#ed-content", m).value } });
+        await api(`/api/projects/${pid}/docs/${docType}`, { method: "PUT", body: { content: editedContent() } });
         toast("已保存，导出与打印将使用新内容");
         m.remove();
         refreshProjects().then(loadProjectView);
       } catch (e) { toast(e.message, true); }
+      finally { save.disabled = false; }
     };
   } catch (e) { toast(e.message, true); }
 }
@@ -1492,14 +1601,26 @@ function openModal(title, html) {
 async function tabReview(p, body) {
   body.innerHTML = `
   <div class="card">
-    <h3>${icon("shield", 16)} 提交前合规预检 <span class="hint">内置 2026 新规 + 知识库规则 + AI 软审查</span></h3>
+    <h3>${icon("shield", 16)} 提交前合规预检 <span class="hint">自动检查材料 + 提示申请问题</span></h3>
     <div class="row">
-      <button class="btn btn-primary btn-big" id="btn-review">${icon("shield", 16)} 运行合规审查</button>
-      <span class="muted">检查：三重一致性 / 名称版本格式 / AI 痕迹 / 功能描述字数 / 材料齐备 / 知识库规则</span>
+      <button class="btn btn-primary btn-big" id="btn-review">${icon("shield", 16)} 检查我的材料</button>
+      <span class="muted">检查：名称版本 / 代码与材料对应 / 待核实内容 / 截图匹配 / 人工核对 / 知识库参考</span>
     </div>
     <div id="review-result" class="mt"></div>
   </div>
   <div class="card"><h3>${icon("clock", 16)} 历史审查记录</h3><div id="review-history"><div class="empty">加载中…</div></div></div>`;
+  const checklist = await api(`/api/projects/${p.id}/submission`);
+  const checks = document.createElement('div'); checks.className = 'card';
+  checks.innerHTML = `<h3>最后三项确认</h3><p class="muted">${checklist.stale ? '材料已变化或尚未核对，请重新确认。' : '已保存当前材料的核对结果。'}这些事项无法仅靠自动审查确认。</p>${Object.entries(checklist.items).map(([key,label]) => `<label class="kbd-line"><input type="checkbox" data-check="${key}" ${checklist.checks[key] ? 'checked' : ''}> ${esc(label)}</label>`).join('')}<div class="field mt"><label>补正通知指定截止日期（收到通知后填写）</label><input type="date" id="correction-due" value="${esc(checklist.correction_due || '')}"></div><div class="field"><label>补正逐项处理记录</label><textarea id="correction-notes">${esc(checklist.correction_notes || '')}</textarea></div><button class="btn btn-primary mt" id="save-checks">保存确认</button>`;
+  body.prepend(checks);
+  $('#save-checks', checks).onclick = async () => {
+    const btn = $('#save-checks', checks); btn.disabled = true;
+    try {
+      await api(`/api/projects/${p.id}/submission`, {method:'PUT', body:{checks:Object.fromEntries($$('[data-check]', checks).map(el => [el.dataset.check, el.checked])), correction_due:$('#correction-due', checks).value, correction_notes:$('#correction-notes', checks).value}});
+      toast('已保存，请重新运行预检');
+    } catch (e) { toast(e.message, true); }
+    finally { btn.disabled = false; }
+  };
   const reports = await api(`/api/projects/${p.id}/reports`).catch(() => ({ reports: [] }));
   $("#review-history").innerHTML = reports.reports.length ? `<div class="table-wrap"><table class="table">
     <thead><tr><th>时间</th><th>结论</th><th>阻断项</th><th>提醒项</th><th></th></tr></thead><tbody>
@@ -1514,21 +1635,21 @@ async function tabReview(p, body) {
   });
   $("#btn-review").onclick = async () => {
     const btn = $("#btn-review"); btn.disabled = true; btn.textContent = "审查中…";
-    $("#review-result").innerHTML = `<div class="empty">正在按 2026 新规逐项检查…</div>`;
+    $("#review-result").innerHTML = `<div class="empty">正在逐项检查…</div>`;
     try {
       const r = await api(`/api/projects/${p.id}/review`, { method: "POST", body: { include_llm: true } });
       renderReport(r.issues, r.passed);
-      if (!state.health.llm_configured) toast("提示：未配置 LLM，仅执行硬校验（配置后可加 AI 软审查）");
+      if (!(state.health && state.health.llm_configured)) toast("提示：未配置 LLM，仅执行硬校验（配置后可加 AI 软审查）");
     } catch (e) { $("#review-result").innerHTML = ""; toast(e.message, true); }
-    btn.disabled = false; btn.innerHTML = `${icon("shield", 16)} 运行合规审查`;
+    btn.disabled = false; btn.innerHTML = `${icon("shield", 16)} 检查我的材料`;
   };
   function renderReport(issues, passed) {
     const blockers = issues.filter(i => i.level === "blocker");
     const warnings = issues.filter(i => i.level === "warning");
     $("#review-result").innerHTML = `
       <div class="issue ${passed ? "pass" : "blocker"}">
-        <span class="lv">${passed ? "可提交" : "暂缓提交"}</span>
-        <div><div class="msg">${passed ? "阻断项已清零，材料达到可提交状态" : `仍有 ${blockers.length} 个阻断项，修复后再提交`}</div>
+        <span class="lv">${passed ? "自动检查通过" : "需处理问题"}</span>
+        <div><div class="msg">${passed ? "自动检查未发现阻断项，仍需核对权属、签章及官网要求" : `仍有 ${blockers.length} 个阻断项，修复后再提交`}</div>
         <div class="fix">阻断 ${blockers.length} · 提醒 ${warnings.length}。最终以版权中心审查为准；提交前建议用真实 Git 记录复核开发过程。</div></div>
       </div>
       ${blockers.concat(warnings).map(i => `
@@ -1563,7 +1684,7 @@ async function tabKB(p, body) {
     <div class="table-wrap"><table class="table"><thead><tr><th style="width:96px;">分类</th><th>问题</th><th>规避方法</th><th style="width:66px;">检查</th><th style="width:56px;">命中</th><th style="width:126px;">操作</th></tr></thead><tbody>
     ${rules.map(r => `<tr>
       <td><span class="tag ${catColor(r.category)}">${esc(r.category)}</span></td>
-      <td>${esc(r.problem)}</td>
+      <td>${esc(r.problem)}<div class="muted">${esc((r.provenance || {}).source_kind || "项目案例/人工经验")} · ${esc((r.provenance || {}).checked_at || "待核实")}${r.provenance && /^https:\/\//.test(r.provenance.source_url || "") ? ` · <a href="${esc(r.provenance.source_url)}" target="_blank" rel="noopener noreferrer">查看依据</a>` : ""}${!r.enabled ? " · 已停用" : ""}</div></td>
       <td style="color:var(--text-2);">${esc(r.solution || "—")}</td>
       <td>${r.check_type === "regex" ? `<span class="tag blue">自动</span>` : `<span class="tag gray">提示</span>`}</td>
       <td>${r.hit_count}</td>
@@ -1633,8 +1754,8 @@ async function tabExport(p, body) {
         <button class="btn btn-primary btn-sm" data-dl="form">下载</button></div></div>
       <div class="doc-item"><div><div class="t">${icon("archive", 17)} 开发过程记录（docx）</div><div class="m">创作过程证据链材料，备查</div></div>
         <div class="row">${printBtn("evidence", docTypes.includes("evidence"))}
-        <button class="btn btn-primary btn-sm" data-dl="evidence">下载</button></div></div>
-      ${docTypes.includes("declaration") ? `<div class="doc-item"><div><div class="t">${icon("bot", 17)} AI 使用声明</div><div class="m">2026 新规材料，附申请表提交</div></div>
+        <button class="btn btn-primary btn-sm" data-dl="evidence" ${docTypes.includes("evidence") ? "" : "disabled"}>${docTypes.includes("evidence") ? "下载" : "可选，尚未准备"}</button></div></div>
+      ${docTypes.includes("declaration") ? `<div class="doc-item"><div><div class="t">${icon("bot", 17)} AI 使用声明</div><div class="m">备查草稿，按实际通知要求使用</div></div>
         <div class="row">${printBtn("declaration", true)}</div></div>` : ""}
     </div>
     <div class="row mt" style="justify-content:center;">
@@ -1644,10 +1765,10 @@ async function tabExport(p, body) {
       ${files.files.map(f => `<div class="kbd-line">${icon("filetext", 14)} <a href="${esc(API + "/api/projects/" + p.id + "/files/" + encodeURIComponent(f))}" download style="color:var(--accent);text-decoration:none;">${esc(f)}</a></div>`).join("")}</div>` : ""}
   </div>
   <div class="card">
-    <h3>${icon("listcheck", 16)} 提交前人工核对（平台已自动检查大部分，剩下需要你动手）</h3>
-    <div class="kbd-line"><span class="tag blue">1</span><span>在官网 cpservice.org 在线填写申请表并<b>带流水号打印</b>（预填清单逐项复制）</span></div>
+    <h3>${icon("listcheck", 16)} 最后三项确认（平台已自动检查大部分，剩下需要你动手）</h3>
+    <div class="kbd-line"><span class="tag blue">1</span><span>在中国版权保护中心官网 <b>ccopyright.com.cn</b> 进入登记系统，核对字段并按提示签章上传</span></div>
     <div class="kbd-line"><span class="tag blue">2</span><span>打开说明书 docx，把剩余的【截图占位框】替换为<b>真实界面截图</b>（已上传截图的会自动嵌入）</span></div>
-    <div class="kbd-line"><span class="tag blue">3</span><span>全部材料<b>单面打印</b>，签字/盖章页不要漏（申请表签名页、营业执照盖章）</span></div>
+    <div class="kbd-line"><span class="tag blue">3</span><span>按当前登记系统要求准备文件，核对<b>签章、PDF分页和清晰度</b>；不要沿用旧的邮寄流程</span></div>
     <div class="kbd-line"><span class="tag blue">4</span><span>合规审查页 <b>blocker 清零</b> 后再提交；AI 声明口径与实际开发过程一致</span></div>
   </div>`;
   $$("[data-print]", body).forEach(b => b.onclick = () => {
@@ -1690,6 +1811,7 @@ function initTheme() {
 
 /* ---------------- 启动 ---------------- */
 async function boot() {
+  if (location.protocol !== "file:") await requireLogin();
   hydrateIcons();
   initTheme();
   // 单文件预览模式（standalone/index.html 直接 file:// 打开）给出明确提示

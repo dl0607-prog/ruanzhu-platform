@@ -260,7 +260,7 @@ def export_form_docx(project: Dict[str, Any], form: Dict[str, Any],
     _set_run_font(run, east_font="黑体", size=16, bold=True)
     note = _body_paragraph(
         doc, "说明：本清单用于对照官网在线申请表逐项填写。正式提交必须在中国版权保护中心"
-             "登记系统在线填写并打印（自动生成流水号），本清单内容可直接复制使用。",
+             "登记系统填写并按系统提示签章上传，本清单不替代正式申请表。",
         size=10.5, line_pt=18, color="C00000")
     note.paragraph_format.space_after = Pt(10)
 
@@ -336,12 +336,12 @@ def export_form_docx(project: Dict[str, Any], form: Dict[str, Any],
 def checklist_text(project: Dict[str, Any], has_code_doc: bool, has_manual: bool,
                    has_form: bool, has_declaration: bool, has_evidence: bool) -> str:
     items = [
-        ("软件著作权登记申请表", has_form, "官网在线填写并带流水号打印，单面，签字/盖章"),
+        ("软件著作权登记申请表", has_form, "本平台仅提供预填参考；官网填表并按系统要求签章上传"),
         ("源程序鉴别材料（前30后30页/每页50行）", has_code_doc, f"源程序-{project['full_name']}-{project['version']}.docx"),
-        ("文档鉴别材料（操作说明书或设计说明书）", has_manual, "替换全部【截图占位】后打印，单面"),
-        ("AI 使用情况声明及人类实质性创作说明（2026 新规）", has_declaration, "可附在申请表后一并提交"),
+        ("文档鉴别材料（操作说明书或设计说明书）", has_manual, "核对真实截图和页码后按系统要求导出上传"),
+        ("AI 使用情况说明（备查，非已核实的统一必交要求）", has_declaration, "根据真实情况准备，以具体通知要求为准"),
         ("软件开发过程记录（证据链材料，备查）", has_evidence, "配合 Git 记录留存备查"),
-        ("身份证明：营业执照复印件加盖公章 / 身份证正反面复印件", False, "线下准备"),
+        ("身份证明：营业执照复印件加盖公章 / 身份证正反面复印件", False, "准备清晰有效的身份证明，按官网要求上传"),
         ("合作/委托开发协议（如适用，签字盖章）", False, "开发方式非独立开发时必须提供"),
     ]
     lines = [
@@ -359,8 +359,8 @@ def checklist_text(project: Dict[str, Any], has_code_doc: bool, has_manual: bool
         "1. 申请表、源程序页眉、说明书页眉的软件全称+版本号完全一致；",
         "2. 源程序每页不少于50行、无空行，末页为程序结束页；",
         "3. 说明书截图清晰无水印，已替换全部占位框；",
-        "4. 全部材料单面打印，右上角页码连续；",
+        "4. 按官网要求上传材料；核对导出PDF分页、字体与截图清晰度；",
         "5. AI 声明口径与实际开发过程一致，Git 记录等证据留存备查；",
-        "6. 同一主体单日提交不超过 3 件，避免触发非正常申请预警。",
+        "6. 收到补正通知后记录指定期限，逐项回复并保留提交副本；无统一每日3件限制的已核实依据。",
     ]
     return "\n".join(lines)

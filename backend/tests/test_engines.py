@@ -164,7 +164,7 @@ def test_checklist_text_lists_all_materials():
     assert "软著申请材料清单" in text
     assert "[平台已生成]" in text
     assert "[需自备]" in text
-    assert "单面打印" in text
+    assert "按官网要求上传" in text
 
 
 # ---------------- seed_kb ----------------
@@ -173,7 +173,7 @@ CATEGORIES = {"格式规范", "材料一致性", "AI声明与原创性", "功能
 
 
 def test_seed_rules_structure():
-    assert len(SEED_RULES) >= 35
+    assert len(SEED_RULES) >= 14
     for r in SEED_RULES:
         assert r["category"] in CATEGORIES, r
         assert r["problem"].strip()

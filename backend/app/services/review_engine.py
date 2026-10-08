@@ -1,6 +1,6 @@
 """合规审查引擎：内置硬校验 + 知识库动态规则 + LLM 软审查。
 
-审查口径对齐 2026-03-15 新规：三重一致性、AI 声明与原创性、鉴别材料格式硬要求。
+区分平台完整性校验、官方规定与经验提醒；不预测登记结果。
 输出 blocker（必须修复）/ warning（强烈建议修复）两级。
 """
 import re
@@ -44,9 +44,9 @@ async def run_review(project_id: int, include_llm: bool = True) -> Dict[str, Any
                              f"软件名称“{full_name}”不是以 系统/软件/平台/App/工具 等结尾",
                              "改为规范命名，例如“XX数据同步系统”"))
     if full_name and FORBIDDEN_NAME_WORDS.search(full_name):
-        issues.append(_issue("blocker", "材料一致性", "P-FORBID",
-                             "软件名称含禁用词（中国/国家/中央/最高级等）",
-                             "去除禁用词后重新生成全部材料"))
+        issues.append(_issue("warning", "材料一致性", "P-FORBID",
+                             "软件名称含需人工核对的地域或宣传性词语",
+                             "核对名称真实性及官网要求，不因关键词自动认定违法"))
     if not VERSION_RE.match(version or ""):
         issues.append(_issue("blocker", "格式规范", "P-VER",
                              f"版本号“{version}”不符合 V1.0 格式",
@@ -77,6 +77,9 @@ async def run_review(project_id: int, include_llm: bool = True) -> Dict[str, Any
                              f"开发方式为{project['dev_type']}，需附经签字盖章的开发协议",
                              "准备合作/委托开发协议扫描件随材料提交"))
 
+    if not (project.get("owner_name") or "").strip():
+        issues.append(_issue("blocker", "材料缺失", "P-OWNER", "著作权人未填写", "填写与身份证明一致的真实姓名或单位全称"))
+
     # ---------- 2. 源代码 ----------
     files = db.get_source_contents(project_id)
     if not files:
@@ -86,14 +89,6 @@ async def run_review(project_id: int, include_llm: bool = True) -> Dict[str, Any
     else:
         pages_info = code_engine.build_pages(files)
         total = pages_info["total_lines"]
-        if total < config_min_lines():
-            issues.append(_issue("blocker", "格式规范", "C-TOO-FEW",
-                                 f"源代码仅 {total} 行，不足一页（50行）",
-                                 "导入完整项目源代码，或补充功能模块代码"))
-        elif total < 3000:
-            issues.append(_issue("warning", "AI声明与原创性", "C-THIN",
-                                 f"源代码共 {total} 行（<3000行）",
-                                 "2026 审查口径建议自研核心代码不少于3000行；不足时建议补充核心模块实现"))
         ok, last = code_engine.last_page_ends_ok(pages_info["pages"])
         if pages_info["pages"] and not ok:
             issues.append(_issue("warning", "格式规范", "C-END",
@@ -102,9 +97,9 @@ async def run_review(project_id: int, include_llm: bool = True) -> Dict[str, Any
         code_all = "\n".join(f.get("content", "") for f in files)
         hit = AI_TRACE_RE.search(code_all)
         if hit:
-            issues.append(_issue("blocker", "AI声明与原创性", "C-AITRACE",
-                                 f"源代码存在明显 AI 生成痕迹词（{hit.group(0)}）",
-                                 "删除该类注释/字样；核心注释改写为设计意图说明"))
+            issues.append(_issue("warning", "AI声明与原创性", "C-AITRACE",
+                                 f"源代码包含来源或工具标记（{hit.group(0)}）",
+                                 "核对真实来源、许可证及人工贡献，保留应有署名；关键词不能证明权利归属"))
         hit2 = TODO_RE.search(code_all)
         if hit2:
             issues.append(_issue("warning", "AI声明与原创性", "C-TODO",
@@ -116,45 +111,49 @@ async def run_review(project_id: int, include_llm: bool = True) -> Dict[str, Any
     if not manual:
         issues.append(_issue("blocker", "材料缺失", "M-NONE",
                              "尚未生成操作说明书/设计说明书",
-                             "在“材料生成”页生成（有界面→操作说明书，无界面→设计说明书）"))
+                             "在“准备材料”页生成（有界面→操作说明书，无界面→设计说明书）"))
     else:
-        if "【截图占位" in (manual.get("content") or ""):
-            issues.append(_issue("warning", "格式规范", "M-SHOT",
-                                 "说明书仍存在未替换的截图占位框",
-                                 "导出 docx 后把占位框替换为真实界面截图（清晰、无水印）再打印"))
-        body_lines = len([ln for ln in (manual.get("content") or "").split("\n") if ln.strip()])
-        if body_lines < 300:
-            issues.append(_issue("warning", "功能描述不足", "M-THIN",
-                                 f"说明书正文仅约 {body_lines} 行，篇幅偏薄",
-                                 "补充模块操作步骤与常见问题，目标正文不少于 450 行（约15页）"))
+        from . import exporter, docx_engine
+        labels = re.findall(r"【截图占位[:：]\s*(.+?)】", manual.get("content") or "")
+        shots = exporter.project_shots(project_id)
+        missing = [label for label in labels if not docx_engine.match_shot(label, shots)]
+        if missing:
+            issues.append(_issue("blocker", "材料缺失", "M-SHOT",
+                                 "说明书缺少截图：" + "、".join(missing),
+                                 "上传对应真实截图，或编辑不适用的占位；导出前核对实际匹配结果"))
+        if "【待核实" in (manual.get("content") or ""):
+            issues.append(_issue("blocker", "材料缺失", "M-VERIFY", "说明书存在待核实内容", "补充真实信息后保存"))
 
     # ---------- 4. 申请表与 AI 声明 ----------
     form = db.get_doc(project_id, "form")
     if not form:
         issues.append(_issue("blocker", "材料缺失", "F-NONE",
-                             "尚未生成申请表预填内容", "在“材料生成”页生成申请表字段"))
+                             "尚未生成申请表预填内容", "在“准备材料”页生成申请表字段"))
     else:
         meta = form.get("meta") or {}
         data = meta.get("data") or {}
         mf = str(data.get("main_functions_desc") or "")
         dp = str(data.get("development_purpose") or "")
-        if len(mf.replace(" ", "")) < 500:
-            issues.append(_issue("blocker", "功能描述不足", "F-FUNC",
-                                 f"主要功能描述仅 {len(mf.replace(' ', ''))} 字（新规要求不少于500字）",
-                                 "重新生成申请表，或人工扩写后同步到官网申请表"))
-        if len(dp.replace(" ", "")) < 500:
-            issues.append(_issue("blocker", "功能描述不足", "F-PURP",
-                                 f"开发目的仅 {len(dp.replace(' ', ''))} 字（要求不少于500字）",
-                                 "重新生成申请表，按'解决什么场景问题→如何解决'结构扩写"))
+        for key, value in (("主要功能", mf), ("开发目的", dp)):
+            if not value.strip() or "【待核实" in value:
+                issues.append(_issue("blocker", "材料缺失", "F-EMPTY", key + "未填写或待核实", "填写实际情况，并核对官网字段限制"))
     declaration = db.get_doc(project_id, "declaration")
     if not declaration:
         issues.append(_issue("warning", "AI声明与原创性", "D-NONE",
-                             "尚未生成 AI 使用情况声明（2026-03-15 新规必备）",
-                             "在“材料生成”页生成 AI 声明，并准备 Git 记录等过程证据"))
+                             "尚未整理 AI 使用情况说明（备查建议，非已核实的统一必交要求）",
+                             "在“准备材料”页生成 AI 声明，并准备 Git 记录等过程证据"))
     if not db.get_doc(project_id, "evidence"):
         issues.append(_issue("warning", "AI声明与原创性", "E-NONE",
                              "尚未生成开发过程记录（证据链材料）",
                              "生成开发过程记录并留存 Git 提交记录备查"))
+
+    fingerprint = db.input_fingerprint(project_id)
+    for item in db.list_docs(project_id):
+        doc = db.get_doc(project_id, item["doc_type"])
+        if (doc.get("meta") or {}).get("input_fingerprint") != fingerprint:
+            issues.append(_issue("blocker", "材料一致性", "DOC-STALE",
+                                 doc['title'] + "未确认与当前项目信息及源码一致",
+                                 "重新生成，或逐项核实材料后编辑保存；保存表示已完成本次人工核对"))
 
     # ---------- 5. 知识库动态规则 ----------
     targets = {
@@ -188,7 +187,7 @@ async def run_review(project_id: int, include_llm: bool = True) -> Dict[str, Any
             msgs = prompts.review_soft_messages(ctx, manual_excerpt, form_summary)
             out = await llm.chat_json(msgs, max_tokens=2000)
             for it in (out.get("issues") or [])[:10]:
-                level = "blocker" if it.get("level") == "blocker" else "warning"
+                level = "warning"  # Model suggestions are not legal blockers.
                 llm_notes.append(_issue(level, str(it.get("category", "其他")), "LLM",
                                         str(it.get("message", ""))[:300],
                                         str(it.get("suggestion", ""))[:300], source="llm"))
@@ -197,6 +196,18 @@ async def run_review(project_id: int, include_llm: bool = True) -> Dict[str, Any
                                     f"LLM 软审查未完成：{str(e)[:200]}",
                                     "可配置 LLM 后重试，硬校验结果不受影响", source="llm"))
     issues += llm_notes
+    from . import submission
+    checklist = submission.state(project_id)
+    for key, label in submission.CHECKS.items():
+        if not checklist.get('checks', {}).get(key):
+            issues.append(_issue('blocker', '材料缺失', 'HUMAN-' + key,
+                                 '待人工核对：' + label, '在检查问题页完成核对并保存；材料变化后需重新确认'))
+    due = checklist.get('correction_due')
+    if due and project.get('status') == 'correction':
+        days = (date.fromisoformat(due) - date.today()).days
+        issues.append(_issue('warning', '其他', 'CORRECTION-DUE',
+                             f'补正指定期限：{due}（剩余{days}天）', '以实际通知期限为准，逐项修改并在官网提交回复'))
+
 
     blockers = [i for i in issues if i["level"] == "blocker"]
     warnings = [i for i in issues if i["level"] == "warning"]

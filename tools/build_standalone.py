@@ -13,7 +13,8 @@ OUT = ROOT / "standalone" / "index.html"
 
 html = (FRONT / "index.html").read_text(encoding="utf-8")
 css = (FRONT / "style.css").read_text(encoding="utf-8")
-js = (FRONT / "app.js").read_text(encoding="utf-8")
+js = (FRONT / "auth.js").read_text(encoding="utf-8") + "\n" + (FRONT / "app.js").read_text(encoding="utf-8")
+html = html.replace('<script src="/static/auth.js?v=20261009b"></script>', "")
 
 for token in ("</script>", "<!--"):
     if token in js or token in css:
@@ -23,7 +24,7 @@ html = html.replace(
     '<link rel="stylesheet" href="/static/style.css">',
     "<style>\n" + css + "\n</style>")
 html = html.replace(
-    '<script src="/static/app.js"></script>',
+    '<script src="/static/app.js?v=20261009b"></script>',
     "<script>\n" + js + "\n</script>")
 
 OUT.parent.mkdir(exist_ok=True)

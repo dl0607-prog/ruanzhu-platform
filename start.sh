@@ -13,7 +13,7 @@ fi
 
 if [ ! -f .env ]; then
   cp .env.example .env
-  echo "[2/3] 已生成 .env（未配置 LLM_API_KEY 时 AI 生成功能不可用，其余功能正常）"
+  echo "[2/3] 已生成 .env；请先设置至少12位 ADMIN_PASSWORD，本机HTTP还需 COOKIE_SECURE=false"
 else
   echo "[2/3] .env 已存在"
 fi
