@@ -2,10 +2,13 @@
 
 PyInstaller 打包（Windows 便携版）时：数据/导出目录在 exe 同目录，前端打进 exe。
 """
+import ipaddress
 import json
 import os
+import socket
 import sys
 from pathlib import Path
+from urllib.parse import urlparse
 
 _FROZEN = getattr(sys, "frozen", False)
 
@@ -76,6 +79,31 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 EXPORT_DIR.mkdir(parents=True, exist_ok=True)
 
 
+def validate_llm_base_url(url: str) -> str:
+    """校验并规范化 LLM 接口地址：仅 http/https，拒绝本机/环回/私网/保留地址。
+
+    公网部署下防止把服务端当作任意地址的转发跳板（SSRF）。
+    """
+    parsed = urlparse(url.strip())
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError("接口地址仅支持 http/https")
+    host = parsed.hostname
+    if not host:
+        raise ValueError("接口地址缺少主机名")
+    if host.lower() in ("localhost", "localhost.localdomain") or host.lower().endswith(".local"):
+        raise ValueError("接口地址不允许指向本机（localhost）")
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except socket.gaierror:
+        raise ValueError(f"无法解析接口地址的主机名：{host}")
+    for info in infos:
+        ip = ipaddress.ip_address(info[4][0])
+        if (ip.is_loopback or ip.is_private or ip.is_link_local
+                or ip.is_reserved or ip.is_multicast or ip.is_unspecified):
+            raise ValueError("接口地址不允许指向环回/私网/保留地址")
+    return (parsed.scheme + "://" + parsed.netloc + parsed.path).rstrip("/")
+
+
 def save_llm_settings(values: dict) -> None:
     """保存 LLM 配置到 data/settings.json 并立即生效（空字段沿用当前值）。"""
     global LLM_BASE_URL, LLM_API_KEY, LLM_MODEL, LLM_TEMPERATURE, LLM_TIMEOUT
@@ -84,6 +112,7 @@ def save_llm_settings(values: dict) -> None:
     model = str(values.get("llm_model") or "").strip()
     if not base_url:
         base_url = LLM_BASE_URL
+    base_url = validate_llm_base_url(base_url)
     if not model:
         model = LLM_MODEL
     if not api_key:

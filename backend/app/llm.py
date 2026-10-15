@@ -45,6 +45,8 @@ async def chat(
 ) -> str:
     """调用 chat/completions，自动重试限流与瞬时错误。"""
     _check()
+    # 公网部署防护：请求前校验目标地址，拒绝环回/私网/保留地址
+    config.validate_llm_base_url(config.LLM_BASE_URL)
     payload = {
         "model": config.LLM_MODEL,
         "messages": messages,

@@ -37,7 +37,10 @@ def get_settings():
 
 @router.post("")
 def save_settings(body: LLMSettings):
-    config.save_llm_settings(body.model_dump())
+    try:
+        config.save_llm_settings(body.model_dump())
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     return {**_view(), "saved": True}
 
 
@@ -48,6 +51,8 @@ async def test_settings():
     try:
         reply = await llm.test_connection()
     except llm.LLMNotConfigured as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except llm.LLMError as e:
         raise HTTPException(status_code=502, detail=str(e))
