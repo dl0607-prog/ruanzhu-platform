@@ -21,6 +21,14 @@ def configured() -> bool:
     return config.llm_configured()
 
 
+async def test_connection() -> str:
+    """用当前配置发一条最小请求，验证连通性与 Key 有效性。"""
+    return await chat(
+        [{"role": "user", "content": "只回复两个字：正常"}],
+        temperature=0, max_tokens=16, retries=0,
+    )
+
+
 def _check() -> None:
     if not configured():
         raise LLMNotConfigured(

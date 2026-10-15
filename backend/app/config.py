@@ -1,15 +1,31 @@
-"""全局配置：从项目根目录 .env 读取，未配置时给出可用默认值。"""
+"""全局配置：环境变量 > data/settings.json（界面保存）> 项目根 .env > 默认值。
+
+PyInstaller 打包（Windows 便携版）时：数据/导出目录在 exe 同目录，前端打进 exe。
+"""
+import json
 import os
+import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent.parent          # ruanzhu-platform/
+_FROZEN = getattr(sys, "frozen", False)
+
+if _FROZEN:
+    ROOT = Path(sys.executable).resolve().parent
+    FRONTEND_DIR = Path(getattr(sys, "_MEIPASS", str(ROOT))) / "frontend"
+else:
+    ROOT = Path(__file__).resolve().parent.parent.parent          # ruanzhu-platform/
+    FRONTEND_DIR = ROOT / "frontend"
+
 DATA_DIR = ROOT / "data"
 EXPORT_DIR = ROOT / "exports"
-FRONTEND_DIR = ROOT / "frontend"
 DB_PATH = DATA_DIR / "ruanzhu.db"
+SETTINGS_FILE = DATA_DIR / "settings.json"
+
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+EXPORT_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def _load_env() -> dict:
+def _load_dotenv() -> dict:
     env = {}
     env_file = ROOT / ".env"
     if env_file.exists():
@@ -22,11 +38,22 @@ def _load_env() -> dict:
     return env
 
 
-_ENV = _load_env()
+def _load_settings() -> dict:
+    if SETTINGS_FILE.exists():
+        try:
+            return json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            return {}
+    return {}
+
+
+_ENV = _load_dotenv()
+_SETTINGS = _load_settings()
 
 
 def _get(key: str, default: str = "") -> str:
-    return os.environ.get(key) or _ENV.get(key) or default
+    # 进程环境变量（如 Docker -e 注入）优先，其次界面保存的 settings.json，再 .env，最后默认值
+    return os.environ.get(key) or str(_SETTINGS.get(key) or "") or _ENV.get(key) or default
 
 
 # LLM 配置：任何 OpenAI 兼容服务（GLM / DeepSeek / 通义 / Kimi / OpenAI / 本地 Ollama）
@@ -47,6 +74,38 @@ MANUAL_LINES_PER_PAGE = 30
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 EXPORT_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def save_llm_settings(values: dict) -> None:
+    """保存 LLM 配置到 data/settings.json 并立即生效（空字段沿用当前值）。"""
+    global LLM_BASE_URL, LLM_API_KEY, LLM_MODEL, LLM_TEMPERATURE, LLM_TIMEOUT
+    base_url = str(values.get("llm_base_url") or "").strip().rstrip("/")
+    api_key = str(values.get("llm_api_key") or "")
+    model = str(values.get("llm_model") or "").strip()
+    if not base_url:
+        base_url = LLM_BASE_URL
+    if not model:
+        model = LLM_MODEL
+    if not api_key:
+        api_key = LLM_API_KEY
+    try:
+        temperature = float(values.get("llm_temperature") or LLM_TEMPERATURE)
+    except (TypeError, ValueError):
+        temperature = LLM_TEMPERATURE
+    try:
+        timeout = int(values.get("llm_timeout") or LLM_TIMEOUT)
+    except (TypeError, ValueError):
+        timeout = LLM_TIMEOUT
+    LLM_BASE_URL, LLM_API_KEY, LLM_MODEL, LLM_TEMPERATURE, LLM_TIMEOUT = (
+        base_url, api_key, model, temperature, timeout,
+    )
+    SETTINGS_FILE.write_text(json.dumps({
+        "llm_base_url": base_url,
+        "llm_api_key": api_key,
+        "llm_model": model,
+        "llm_temperature": str(temperature),
+        "llm_timeout": str(timeout),
+    }, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def llm_configured() -> bool:

@@ -597,3 +597,19 @@ html[data-theme="dark"] .toast.err { background: #42232a; }
   .topbar { padding: 0 16px; }
   .topbar .crumb { display: none; }
 }
+
+/* ---------------- AI 服务设置 ---------------- */
+.llm-badge-btn {
+  background: none; border: none; padding: 0; margin: 0;
+  cursor: pointer; display: inline-flex; align-items: center; font-family: inherit;
+}
+.llm-badge-btn .badge-llm { transition: transform .15s; }
+.llm-badge-btn:hover .badge-llm { transform: translateY(-1px); }
+.settings-presets { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+.preset-chip {
+  padding: 5px 13px; border-radius: 20px; cursor: pointer; font-family: inherit;
+  font-size: 12.5px; font-weight: 500; background: var(--card-2); color: var(--text-2);
+  border: 1px solid var(--line-strong); transition: all .15s;
+}
+.preset-chip:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+.settings-note { font-size: 12px; color: var(--muted); line-height: 1.7; margin-top: 6px; }

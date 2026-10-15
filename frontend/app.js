@@ -826,6 +826,71 @@ function openModal(title, html) {
   m.onclick = e => { if (e.target === m) m.remove(); };
 }
 
+/* ---- AI 服务设置（Base URL / Key / 模型，保存在本机 data/settings.json） ---- */
+const LLM_PRESETS = [
+  { name: "智谱 GLM", base: "https://open.bigmodel.cn/api/paas/v4", model: "glm-4-flash" },
+  { name: "DeepSeek", base: "https://api.deepseek.com/v1", model: "deepseek-chat" },
+  { name: "通义千问", base: "https://dashscope.aliyuncs.com/compatible-mode/v1", model: "qwen-plus" },
+  { name: "本地 Ollama", base: "http://localhost:11434/v1", model: "qwen2.5" },
+];
+
+async function openSettings() {
+  let s = {};
+  try { s = await api("/api/settings"); } catch (e) { toast(e.message, true); return; }
+  const m = document.createElement("div");
+  m.className = "modal-mask";
+  m.innerHTML = `<div class="modal">
+    <div class="modal-head"><h3>${icon("bot", 16)} AI 服务设置</h3><button class="modal-close">${icon("x")}</button></div>
+    <div class="modal-body">
+      <div class="settings-presets">
+        ${LLM_PRESETS.map(p => `<button type="button" class="preset-chip" data-base="${esc(p.base)}" data-model="${esc(p.model)}">${esc(p.name)}</button>`).join("")}
+      </div>
+      <div class="field"><label>接口地址 Base URL</label>
+        <input id="set-base" value="${esc(s.llm_base_url || "")}" placeholder="OpenAI 兼容接口地址，如 https://api.deepseek.com/v1"></div>
+      <div class="field"><label>API Key</label>
+        <input id="set-key" type="password" autocomplete="off" placeholder="${s.llm_configured ? "已配置（留空则保持不变）" : "sk-…"}"></div>
+      <div class="field"><label>模型名称</label>
+        <input id="set-model" value="${esc(s.llm_model || "")}" placeholder="如 deepseek-chat / glm-4-flash / qwen-plus"></div>
+      <div class="settings-note">配置保存在本机 <b>data/settings.json</b>，仅当前设备生效。支持智谱 GLM / DeepSeek / 通义千问 / Kimi / OpenAI / Ollama 等 OpenAI 兼容接口。</div>
+      <div class="row mt">
+        <button class="btn btn-primary" id="set-save">${icon("check", 14)} 保存并生效</button>
+        <button class="btn btn-ghost" id="set-test">${icon("sparkles", 14)} 保存并测试连接</button>
+      </div>
+    </div>
+  </div>`;
+  document.body.appendChild(m);
+  $(".modal-close", m).onclick = () => m.remove();
+  m.onclick = e => { if (e.target === m) m.remove(); };
+  $$(".preset-chip", m).forEach(chip => chip.onclick = () => {
+    $("#set-base").value = chip.dataset.base;
+    $("#set-model").value = chip.dataset.model;
+  });
+  const saveForm = async () => api("/api/settings", { method: "POST", body: {
+    llm_base_url: $("#set-base").value.trim(),
+    llm_api_key: $("#set-key").value.trim(),
+    llm_model: $("#set-model").value.trim(),
+  }});
+  $("#set-save").onclick = async () => {
+    const btn = $("#set-save"); btn.disabled = true;
+    try {
+      await saveForm();
+      toast("AI 配置已保存并生效");
+      m.remove();
+      await refreshLLMBadge();
+    } catch (e) { toast(e.message, true); btn.disabled = false; }
+  };
+  $("#set-test").onclick = async () => {
+    const btn = $("#set-test"); btn.disabled = true;
+    try {
+      await saveForm();
+      const r = await api("/api/settings/test", { method: "POST", body: {} });
+      toast("连接成功：" + String(r.reply || "OK").slice(0, 60));
+      await refreshLLMBadge();
+    } catch (e) { toast(e.message, true); }
+    btn.disabled = false;
+  };
+}
+
 /* ---- Tab: 合规审查 ---- */
 async function tabReview(p, body) {
   body.innerHTML = `
@@ -856,7 +921,7 @@ async function tabReview(p, body) {
     try {
       const r = await api(`/api/projects/${p.id}/review`, { method: "POST", body: { include_llm: true } });
       renderReport(r.issues, r.passed);
-      if (!state.health.llm_configured) toast("提示：未配置 LLM，仅执行硬校验（配置后可加 AI 软审查）");
+      if (!state.health.llm_configured) toast("提示：未配置 LLM，仅执行硬校验（点击右上角 AI 徽标即可配置）");
     } catch (e) { $("#review-result").innerHTML = ""; toast(e.message, true); }
     btn.disabled = false; btn.innerHTML = `${icon("shield", 16)} 运行合规审查`;
   };
@@ -1027,6 +1092,18 @@ function initTheme() {
 }
 
 /* ---------------- 启动 ---------------- */
+async function refreshLLMBadge() {
+  try { state.health = await api("/api/health"); } catch (e) {}
+  paintLLMBadge();
+}
+
+function paintLLMBadge() {
+  const h = state.health;
+  $("#llm-badge").innerHTML = h && h.llm_configured
+    ? `<span class="badge-llm on">${icon("check", 12)} AI 已连接 · ${esc(h.llm_model || "")}</span>`
+    : `<span class="badge-llm off">${icon("alert", 12)} AI 未配置 · 点击配置</span>`;
+}
+
 async function boot() {
   hydrateIcons();
   initTheme();
@@ -1037,11 +1114,7 @@ async function boot() {
     b.innerHTML = "当前为<b>单文件预览模式</b>（file:// 直接打开）：数据接口不可用，仅展示界面骨架。完整功能请运行 <b>./start.sh</b> 后访问 <b>http://127.0.0.1:8310</b>。";
     document.body.prepend(b);
   }
-  try { state.health = await api("/api/health"); } catch (e) {}
-  const h = state.health;
-  $("#llm-badge").innerHTML = h && h.llm_configured
-    ? `<span class="badge-llm on">${icon("check", 12)} AI 已连接 · ${esc(h.llm_model || "")}</span>`
-    : `<span class="badge-llm off" title="在项目根目录 .env 配置 LLM_API_KEY 后可使用 AI 生成">${icon("alert", 12)} AI 未配置</span>`;
+  await refreshLLMBadge();
   try { await refreshProjects(); }
   catch (e) {
     $("#proj-list").innerHTML = `<div class="proj-empty">服务未连接</div>`;
@@ -1057,5 +1130,6 @@ $("#btn-new-top").onclick = () => openProjectModal(null);
 $("#btn-new-side").onclick = () => openProjectModal(null);
 $("#btn-home").onclick = () => showDashboard();
 $("#btn-index").onclick = () => showIndex();
+$("#llm-badge").onclick = openSettings;
 window.openProject = openProject;
 boot();

@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import config, database
-from .routers import export, generate, projects, review, shots
+from .routers import export, generate, projects, review, settings, shots
 from .services import seed_kb
 
 app = FastAPI(title="软著申请辅助平台", version="1.0.0")
@@ -27,6 +27,7 @@ app.include_router(generate.router)
 app.include_router(review.router)
 app.include_router(export.router)
 app.include_router(shots.router)
+app.include_router(settings.router)
 
 SEEDED = {"count": 0}
 
