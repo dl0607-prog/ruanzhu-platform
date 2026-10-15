@@ -104,7 +104,11 @@ function setPage(title, crumb) {
 
 async function api(path, opts = {}) {
   if (!path.startsWith("/api/")) throw new Error("非法的 API 路径");
-  const res = await fetch(API + path, {
+  // 同源白名单:只允许请求本服务自身的接口,杜绝 //、../ 等拼接把请求导向其他地址
+  let url;
+  try { url = new URL(path, API); } catch (e) { throw new Error("非法的 API 路径"); }
+  if (url.origin !== new URL(API).origin) throw new Error("非法的 API 路径");
+  const res = await fetch(url.href, {
     headers: { "Content-Type": "application/json" },
     ...opts,
     body: opts.body ? JSON.stringify(opts.body) : undefined,
