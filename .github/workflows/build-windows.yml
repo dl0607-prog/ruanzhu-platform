@@ -1,0 +1,38 @@
+name: Build Windows 便携版
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 安装依赖
+        run: pip install -r backend/requirements.txt pyinstaller
+
+      # onedir 比 onefile 被杀软误报的概率低，便携性靠外层 zip 保证
+      - name: 打包 exe
+        run: >-
+          pyinstaller --clean -y --onedir --name RuanZhuWorkshop
+          --add-data "frontend;frontend"
+          --collect-all uvicorn --collect-all docx
+          --collect-all httpx --collect-all certifi
+          --collect-all httpcore --collect-all h11
+          run_win.py
+
+      - name: 压缩便携包
+        shell: pwsh
+        run: Compress-Archive -Path dist\RuanZhuWorkshop\* -DestinationPath RuanZhuWorkshop-Windows.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ruanzhu-workshop-windows
+          path: RuanZhuWorkshop-Windows.zip
