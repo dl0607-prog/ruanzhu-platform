@@ -75,8 +75,22 @@ jobs:
           Write-Host "合规审查: $($rev.blockers) 阻断, $($rev.warnings) 提醒"
           Invoke-WebRequest -Uri "http://127.0.0.1:8310/api/projects/$($proj.id)/export/source" -OutFile smoke-source.docx
           $size = (Get-Item smoke-source.docx).Length
-          Write-Host "导出 docx: $size 字节"
+          Write-Host "用例1 导出 docx: $size 字节"
           if ($size -lt 5000) { throw "导出 docx 异常(过小)" }
+          # 用例2:全套打包导出 + 打印视图
+          Invoke-WebRequest -Uri "http://127.0.0.1:8310/api/projects/$($proj.id)/export/bundle" -OutFile smoke-bundle.zip
+          $bsize = (Get-Item smoke-bundle.zip).Length
+          Write-Host "用例2 打包导出: $bsize 字节"
+          if ($bsize -lt 3000) { throw "打包导出异常(过小)" }
+          $print = Invoke-WebRequest -Uri "http://127.0.0.1:8310/api/projects/$($proj.id)/print/source" -UseBasicParsing
+          if ($print.Content -notmatch "smoke_sample.py") { throw "打印视图未渲染源码" }
+          Write-Host "用例2 打印视图: 已渲染源码, $($print.Content.Length) 字符"
+          # 用例3:AI 设置保存与立即生效
+          $set = Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8310/api/settings" -ContentType "application/json" -Body '{"llm_base_url":"https://api.deepseek.com/v1","llm_model":"deepseek-chat"}'
+          if ($set.llm_model -ne "deepseek-chat") { throw "设置保存未生效" }
+          $set2 = Invoke-RestMethod -Uri "http://127.0.0.1:8310/api/settings"
+          if ($set2.llm_base_url -ne "https://api.deepseek.com/v1") { throw "设置持久化异常" }
+          Write-Host "用例3 AI 设置保存/读取: 通过"
           Invoke-RestMethod -Method Delete -Uri "http://127.0.0.1:8310/api/projects/$($proj.id)"
           Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
-          Write-Host "冒烟用例全部通过"
+          Write-Host "冒烟用例全部通过(3 例)"

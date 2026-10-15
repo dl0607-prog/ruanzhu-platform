@@ -1,0 +1,68 @@
+name: Build macOS 便携版
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 安装依赖
+        run: pip install -r backend/requirements.txt pyinstaller
+
+      - name: 打包 macOS 应用
+        run: >-
+          pyinstaller --clean -y --onedir --name RuanZhuWorkshopMac
+          --add-data "frontend:frontend"
+          --collect-all uvicorn --collect-all docx
+          --collect-all httpx --collect-all certifi
+          --collect-all httpcore --collect-all h11
+          run_win.py
+
+      - name: 压缩便携包
+        run: cd dist && zip -q -r -X RuanZhuWorkshopMac.zip RuanZhuWorkshopMac
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ruanzhu-workshop-macos
+          path: dist/RuanZhuWorkshopMac.zip
+
+  smoke:
+    needs: build
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ruanzhu-workshop-macos
+
+      - name: 启动打包产物并跑业务用例
+        run: |
+          unzip -q RuanZhuWorkshopMac.zip
+          ./RuanZhuWorkshopMac/RuanZhuWorkshopMac > /tmp/app.log 2>&1 &
+          APP_PID=$!
+          ok=0
+          for i in $(seq 1 40); do
+            curl -sf http://127.0.0.1:8310/api/health > /dev/null && { ok=1; break; }
+            sleep 2
+          done
+          [ "$ok" = "1" ] || { cat /tmp/app.log; kill $APP_PID; exit 1; }
+          # 建项目 → 传源码 → 审查 → 导出 docx → 打包
+          PID=$(curl -sf -X POST http://127.0.0.1:8310/api/projects -H 'Content-Type: application/json' -d '{"full_name":"macOS 冒烟用例","version":"V1.0","main_functions":"验证 mac 打包产物"}' | python3 -c "import json,sys;print(json.load(sys.stdin)['id'])")
+          python3 -c "import json;print(json.dumps({'files':[{'filename':'smoke_sample.py','content':open('backend/tests/smoke_sample.py',encoding='utf-8').read()}],'replace':True}))" > code.json
+          curl -sf -X POST "http://127.0.0.1:8310/api/projects/$PID/code" -H 'Content-Type: application/json' --data-binary @code.json
+          curl -sf -X POST "http://127.0.0.1:8310/api/projects/$PID/review" -H 'Content-Type: application/json' -d '{"include_llm":false}' | grep -o '"blockers"[[:space:]]*:[[:space:]]*[0-9]*'
+          curl -sf "http://127.0.0.1:8310/api/projects/$PID/export/source" -o source.docx
+          SIZE=$(stat -f%z source.docx)
+          [ "$SIZE" -gt 5000 ] || { echo "docx 过小: $SIZE"; kill $APP_PID; exit 1; }
+          echo "macOS 冒烟用例通过, 导出 docx $SIZE 字节"
+          kill $APP_PID
