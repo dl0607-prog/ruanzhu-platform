@@ -2,10 +2,19 @@
 # ============================================================
 # 软著工场 · 云服务器一键部署脚本
 # 适用:腾讯云轻量应用服务器 / CVM(Ubuntu、Debian、CentOS、TencentOS)
-# 用法:
+# 用法(在【服务器网页终端】里粘贴,不要在 Mac/Windows 本机终端运行):
 #   curl -fsSL https://raw.githubusercontent.com/dl0607-prog/ruanzhu-platform/main/deploy.sh -o /tmp/rz.sh && bash /tmp/rz.sh
 # 部署完成后浏览器访问 http://<服务器公网IP> 即可。
 # ============================================================
+
+# 防呆:如果在本机 macOS 上运行,直接提示退出(避免装错机器)
+if [ "$(uname)" = "Darwin" ]; then
+  echo "⚠️ 检测到这是 Mac 电脑,不是云服务器。"
+  echo "请回到浏览器里的轻量服务器控制台 → 点服务器卡片上的「登录」,"
+  echo "在弹出的【网页终端】窗口中粘贴本命令。"
+  exit 1
+fi
+
 set -e
 
 # 需要 root 权限(不是 root 时自动提权)
@@ -14,28 +23,23 @@ if [ "$(id -u)" != "0" ]; then
   exec sudo bash "$0"
 fi
 
-echo "==> [1/5] 检查并安装 Docker(已安装则跳过)"
-if ! command -v docker >/dev/null 2>&1; then
-  curl -fsSL --retry 3 -o /tmp/get-docker.sh https://get.docker.com
-  sh /tmp/get-docker.sh --mirror Aliyun
+echo "==> [1/4] 检查 Python3 环境"
+if ! command -v python3 >/dev/null 2>&1; then
+  if command -v apt-get >/dev/null 2>&1; then
+    apt-get update -qq && apt-get install -y -qq python3 python3-venv python3-pip
+  elif command -v yum >/dev/null 2>&1; then
+    yum install -y -q python3 python3-pip
+  fi
 fi
-systemctl enable --now docker >/dev/null 2>&1 || service docker start >/dev/null 2>&1 || true
-
-echo "==> [2/5] 配置国内镜像加速(腾讯云内网源,构建更快更稳)"
-mkdir -p /etc/docker
-if [ ! -f /etc/docker/daemon.json ]; then
-  cat > /etc/docker/daemon.json <<'JSON'
-{
-  "registry-mirrors": [
-    "https://mirror.ccs.tencentyun.com",
-    "https://docker.m.daocloud.io"
-  ]
-}
-JSON
-  systemctl restart docker >/dev/null 2>&1 || true
+# 确保 venv 模块可用(Debian/Ubuntu 需要单独装 python3-venv)
+if ! python3 -m venv --help >/dev/null 2>&1; then
+  if command -v apt-get >/dev/null 2>&1; then
+    apt-get install -y -qq python3-venv python3-pip
+  fi
 fi
+python3 --version
 
-echo "==> [3/5] 下载最新版项目代码"
+echo "==> [2/4] 下载最新版项目代码"
 mkdir -p /opt
 cd /opt
 curl -fL --retry 3 --retry-delay 2 -o ruanzhu.tar.gz \
@@ -43,27 +47,39 @@ curl -fL --retry 3 --retry-delay 2 -o ruanzhu.tar.gz \
 rm -rf ruanzhu-platform-main
 tar xzf ruanzhu.tar.gz
 cd ruanzhu-platform-main
-
-echo "==> [4/5] 生成配置(pip 使用清华源加速构建)"
 [ -f .env ] || cp .env.example .env
-sed -i 's#RUN pip install --no-cache-dir -r requirements.txt#RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements.txt#' Dockerfile
 
-# 同时映射 80 和 8310:防火墙放行任意一个端口都能访问
-cat > docker-compose.override.yml <<'YAML'
-services:
-  ruanzhu:
-    ports:
-      - "80:8310"
-      - "8310:8310"
-YAML
+echo "==> [3/4] 安装依赖(清华镜像源,约 1-2 分钟)"
+python3 -m venv .venv
+.venv/bin/pip install -q --upgrade pip -i https://pypi.tuna.tsinghua.edu.cn/simple
+.venv/bin/pip install -i https://pypi.tuna.tsinghua.edu.cn/simple -r backend/requirements.txt
 
-echo "==> [5/5] 构建并启动(首次约 2-5 分钟,请耐心等待)"
-docker compose up -d --build
+echo "==> [4/4] 注册开机自启服务并启动"
+# 80 端口转发到 8310:防火墙放行 80 或 8310 任意一个都能访问
+cat > /etc/systemd/system/ruanzhu.service <<'UNIT'
+[Unit]
+Description=Ruanzhu Workshop (软著工场)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/ruanzhu-platform-main/backend
+ExecStartPre=/bin/bash -c 'iptables -t nat -D PREROUTING -p tcp --dport 80 -j REDIRECT --to-ports 8310 2>/dev/null; iptables -t nat -A PREROUTING -p tcp --dport 80 -j REDIRECT --to-ports 8310 || true'
+ExecStart=/opt/ruanzhu-platform-main/.venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8310
+Restart=always
+RestartSec=3
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+systemctl daemon-reload
+systemctl enable --now ruanzhu
 
 echo ""
 echo "==> 等待服务就绪…"
 ready=0
-for i in $(seq 1 60); do
+for i in $(seq 1 40); do
   if curl -sf http://127.0.0.1:8310/api/health >/dev/null 2>&1; then
     ready=1
     break
@@ -85,5 +101,5 @@ if [ "$ready" = "1" ]; then
   echo "      放行 TCP 端口 80 和 8310(各添加一条规则),再访问即可。"
 else
   echo "⚠️ 服务尚未就绪,请运行以下命令查看日志:"
-  echo "    cd /opt/ruanzhu-platform-main && docker compose logs --tail=100"
+  echo "    journalctl -u ruanzhu -n 100 --no-pager"
 fi
