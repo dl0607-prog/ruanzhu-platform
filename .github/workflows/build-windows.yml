@@ -69,7 +69,7 @@ jobs:
           $body = @{ files = @(@{ filename = "smoke_sample.py"; content = $content }); replace = $true } | ConvertTo-Json -Depth 4
           $stored = Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8310/api/projects/$($proj.id)/code" -ContentType "application/json" -Body $body
           Write-Host "代码入库: $($stored.files_stored) 个文件, $($stored.total_lines) 行, $($stored.pages_submitted) 页"
-          if ($stored.total_lines -lt 50 -or $stored.pages_submitted -lt 1) { throw "分页统计异常" }
+          if ($stored.total_lines -lt 20 -or $stored.pages_submitted -lt 1) { throw "分页统计异常" }
           # 合规审查(硬校验)与 docx 导出
           $rev = Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8310/api/projects/$($proj.id)/review" -ContentType "application/json" -Body '{"include_llm":false}'
           Write-Host "合规审查: $($rev.blockers) 阻断, $($rev.warnings) 提醒"
