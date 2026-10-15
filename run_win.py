@@ -8,6 +8,12 @@ import socket
 import sys
 import threading
 import webbrowser
+from pathlib import Path
+
+# 便携版（Windows 嵌入式 Python 随包分发）:数据/导出目录跟随 exe 所在文件夹
+_EXE_DIR = Path(sys.executable).resolve().parent
+if (_EXE_DIR / "python311._pth").exists() and not getattr(sys, "frozen", False):
+    sys.frozen = True
 
 import uvicorn
 
