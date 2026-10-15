@@ -40,13 +40,20 @@ fi
 python3 --version
 
 echo "==> [2/4] 下载最新版项目代码"
-mkdir -p /opt
-cd /opt
+mkdir -p /opt && cd /opt
+# 备份已有数据(重复部署/升级时保护项目数据不丢失)
+BACKUP=/tmp/rz-data-backup
+rm -rf "$BACKUP" && mkdir -p "$BACKUP"
+if [ -d ruanzhu-platform-main/data ]; then cp -a ruanzhu-platform-main/data "$BACKUP/"; fi
+if [ -d ruanzhu-platform-main/exports ]; then cp -a ruanzhu-platform-main/exports "$BACKUP/"; fi
 curl -fL --retry 3 --retry-delay 2 -o ruanzhu.tar.gz \
   https://github.com/dl0607-prog/ruanzhu-platform/archive/refs/heads/main.tar.gz
 rm -rf ruanzhu-platform-main
 tar xzf ruanzhu.tar.gz
 cd ruanzhu-platform-main
+# 还原数据
+if [ -d "$BACKUP/data" ]; then cp -a "$BACKUP/data" ./data; echo "已恢复历史数据 data/"; fi
+if [ -d "$BACKUP/exports" ]; then cp -a "$BACKUP/exports" ./exports; fi
 [ -f .env ] || cp .env.example .env
 
 echo "==> [3/4] 安装依赖(清华镜像源,约 1-2 分钟)"
