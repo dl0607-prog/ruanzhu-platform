@@ -36,3 +36,47 @@ jobs:
         with:
           name: ruanzhu-workshop-windows
           path: RuanZhuWorkshop-Windows.zip
+
+  # 在 Windows 上真跑一遍打包产物:启动 exe → 建项目 → 传源码 → 分页统计 → 导出 docx
+  smoke:
+    needs: build
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ruanzhu-workshop-windows
+
+      - name: 解压并启动 exe 跑业务用例
+        shell: pwsh
+        run: |
+          Expand-Archive RuanZhuWorkshop-Windows.zip -DestinationPath portable -Force
+          $proc = Start-Process -FilePath "portable\RuanZhuWorkshop.exe" -PassThru
+          $healthy = $false
+          for ($i = 0; $i -lt 45; $i++) {
+            Start-Sleep -Seconds 2
+            try {
+              $h = Invoke-RestMethod -Uri "http://127.0.0.1:8310/api/health" -TimeoutSec 3
+              if ($h.ok) { $healthy = $true; break }
+            } catch {}
+          }
+          if (-not $healthy) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue; throw "exe 启动失败:health 检查超时" }
+          Write-Host "health OK: llm_configured=$($h.llm_configured), kb_rules=$($h.kb_rules_total)"
+          # 建项目 → 传源码 → 分页统计
+          $proj = Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8310/api/projects" -ContentType "application/json" -Body '{"full_name":"CI 冒烟用例系统","version":"V1.0","main_functions":"验证打包产物端到端可用"}'
+          $content = Get-Content -Raw backend\tests\smoke_sample.py
+          $body = @{ files = @(@{ filename = "smoke_sample.py"; content = $content }); replace = $true } | ConvertTo-Json -Depth 4
+          $stored = Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8310/api/projects/$($proj.id)/code" -ContentType "application/json" -Body $body
+          Write-Host "代码入库: $($stored.files_stored) 个文件, $($stored.total_lines) 行, $($stored.pages_submitted) 页"
+          if ($stored.total_lines -lt 50 -or $stored.pages_submitted -lt 1) { throw "分页统计异常" }
+          # 合规审查(硬校验)与 docx 导出
+          $rev = Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8310/api/projects/$($proj.id)/review" -ContentType "application/json" -Body '{"include_llm":false}'
+          Write-Host "合规审查: $($rev.blockers) 阻断, $($rev.warnings) 提醒"
+          Invoke-WebRequest -Uri "http://127.0.0.1:8310/api/projects/$($proj.id)/export/source" -OutFile smoke-source.docx
+          $size = (Get-Item smoke-source.docx).Length
+          Write-Host "导出 docx: $size 字节"
+          if ($size -lt 5000) { throw "导出 docx 异常(过小)" }
+          Invoke-RestMethod -Method Delete -Uri "http://127.0.0.1:8310/api/projects/$($proj.id)"
+          Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+          Write-Host "冒烟用例全部通过"
